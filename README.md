@@ -15,12 +15,11 @@ This is [gzip-ng](https://github.com/nmoinvaz/gzip-ng) in Rust. The command is s
 ## Build
 
 ```
-git submodule update --init
 cargo build --release
 cargo test
 ```
 
-The command lands in `target/release/gzip-ng`. zlib-ng is a submodule pinned to a commit of its develop branch, built from source along with the rest, which needs CMake and a C compiler. `git submodule update --remote zlib-ng` moves the pin to the head of develop.
+The command lands in `target/release/gzip-ng`. Every build fetches the head of zlib-ng's develop branch and builds it from source along with the rest, which needs git, CMake, and a C compiler. With no network a build warns and uses the zlib-ng it fetched last. `ZLIBNG_TAG` names another branch or tag to build against.
 
 ## Build Options
 
