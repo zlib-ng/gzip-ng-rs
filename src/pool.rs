@@ -75,7 +75,6 @@ struct Ring {
 }
 
 struct Shared {
-    mode: Mode,
     /// Bytes in each slot's out buffer.
     out_size: usize,
     ring: Mutex<Ring>,
@@ -100,10 +99,7 @@ pub struct Pool {
     inline: Option<Codec>,
 }
 
-fn worker(shared: &Shared) {
-    let Some(mut codec) = Codec::new(shared.mode) else {
-        return;
-    };
+fn worker(shared: &Shared, mut codec: Codec) {
     loop {
         let mut ring = shared.lock();
         while !ring.abort && ring.queue.is_empty() {
@@ -157,7 +153,6 @@ impl Pool {
             .collect();
         let mut pool = Self {
             shared: Arc::new(Shared {
-                mode,
                 out_size,
                 ring: Mutex::new(Ring {
                     cells,
@@ -178,7 +173,9 @@ impl Pool {
         }
         for _ in 0..nthreads {
             let shared = Arc::clone(&pool.shared);
-            match thread::Builder::new().spawn(move || worker(&shared)) {
+            // Made here, where a stream that cannot be had still fails the start.
+            let codec = Codec::new(mode)?;
+            match thread::Builder::new().spawn(move || worker(&shared, codec)) {
                 Ok(thread) => pool.threads.push(thread),
                 Err(_) => break,
             }
