@@ -1,5 +1,5 @@
 [package]
-name = "gzip-ng"
+name = "gzip-ng-rs"
 version = "2.0.1"
 edition = "2024"
 rust-version = "1.88"
@@ -12,6 +12,11 @@ categories = ["compression", "command-line-utilities"]
 
 [lib]
 name = "gzng"
+
+# The command keeps the name of the C tool it ports.
+[[bin]]
+name = "gzip-ng"
+path = "src/main.rs"
 
 [features]
 default = ["threads"]
