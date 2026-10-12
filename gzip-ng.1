@@ -1,0 +1,304 @@
+.\" gzip-ng.1 -- gzip-ng manual page
+.\" For conditions of distribution and use, see LICENSE.md
+.TH GZIP\-NG 1 2026-10-12 gzip\-ng "User Commands"
+.SH NAME
+gzip\-ng \- compress or decompress gzip files in parallel
+.SH SYNOPSIS
+.B gzip\-ng
+.RI [ option " ...]"
+.RI [ file " ...]"
+.SH DESCRIPTION
+.B gzip\-ng
+compresses each
+.I file
+into
+.IR file .gz
+and removes the original, as
+.BR gzip (1)
+does.
+The deflate, inflate, and crc work is done by zlib\-ng.
+With no
+.IR file ,
+or when
+.I file
+is
+.BR \- ,
+it filters standard input to standard output.
+.PP
+With
+.B \-d
+it turns
+.IR file .gz
+back into
+.IR file .
+A
+.I file
+named without the
+.B .gz
+suffix is read from
+.IR file .gz .
+.PP
+An output file takes the mode and times of its input.
+An output that already exists is left alone, with a warning, unless
+.B \-f
+is given.
+.PP
+Options and files may come in any order, and short options cluster.
+A value follows its option as the next argument,
+or directly after a short option, as in
+.BR \-b64 .
+The form
+.BI \-\-option= value
+is not accepted.
+The argument
+.B \-\-
+ends the options.
+.PP
+Run under the name
+.B gunzip
+it presets
+.BR \-d ,
+and under
+.B zcat
+or
+.B gzcat
+it presets
+.BR \-dc .
+.SH OPTIONS
+.SS Operation
+.TP
+.BR \-c ", " \-\-stdout ", " \-\-to\-stdout
+Write to standard output and keep the input files.
+.TP
+.BR \-d ", " \-\-decompress ", " \-\-uncompress
+Decompress.
+Input that is not in gzip format is refused when the output is a file,
+and passed through unchanged when the output is standard output.
+.TP
+.BR \-t ", " \-\-test
+Check the integrity of each file without writing anything.
+With
+.B \-v
+each good file is reported.
+.TP
+.BR \-l ", " \-\-list
+List the compressed size, uncompressed size, ratio, and name of each file,
+with a line of totals for more than one.
+With
+.B \-v
+the method, crc, and time are listed too, and with
+.B \-N
+the name is the stored one.
+The uncompressed size is the one the file records at its end,
+which holds 32 bits of it.
+Standard input cannot be listed.
+.TP
+.BR \-k ", " \-\-keep
+Keep the input files.
+.TP
+.BR \-f ", " \-\-force
+Overwrite existing output files, and allow compressed data to go to a terminal.
+.TP
+.BR \-r ", " \-\-recursive
+Descend into directories.
+Compression skips the files that already end in
+.BR .gz ,
+and decompression and listing take only those.
+Symbolic links found there are skipped.
+Without this option a directory is skipped with a warning.
+.TP
+.B \-\-synchronous
+Write each output to permanent storage before its input is removed.
+.SS Compression
+.TP
+.BR \-1 " .. " \-9
+Set the compression level, from fastest to smallest.
+The default is
+.BR \-7 .
+.TP
+.B \-\-fast
+The same as
+.BR \-1 .
+.TP
+.B \-\-best
+The same as
+.BR \-9 .
+.TP
+.BR \-H ", " \-\-huffman
+Use the Huffman only strategy, which does no string matching.
+.TP
+.BR \-U ", " \-\-rle
+Use the run length strategy, which matches only runs of one byte.
+.TP
+.B \-\-filtered
+Use the filtered strategy,
+meant for the small values a filter or predictor produces.
+.TP
+.B \-\-fixed
+Use the fixed codes strategy, which never builds Huffman codes of its own.
+.TP
+.B \-T
+Copy the input to the output unchanged, without compressing it.
+.TP
+.B \-\-rsyncable
+Make a plain stream friendly to
+.BR rsync (1).
+Output written in blocks always is.
+.SS Blocks and threads
+.TP
+.BR \-b ", " \-\-blocksize " \fIsize\fP"
+Compress in independent blocks that average
+.I size
+KiB.
+A suffix of
+.B K
+or
+.B M
+names the unit.
+The largest block is 256M, and the default once blocks are in use is 128K.
+The blocks are deflated on every CPU unless
+.B \-p
+says otherwise.
+.TP
+.BR \-p ", " \-\-processes " \fIn\fP"
+Use
+.I n
+threads, where 0 picks the number of CPUs, up to 64.
+When compressing, any value but 1 turns blocks on.
+When decompressing, the default is 0, and 1 inflates serially.
+.TP
+.BR \-i ", " \-\-independent
+Accepted for compatibility with
+.BR pigz (1).
+Blocks are always independent.
+.SS Name and time
+Compressing a file saves its name and modification time in the header.
+Decompressing restores neither unless asked to.
+Standard input has no name or time to save.
+.TP
+.BR \-n ", " \-\-no\-name
+Do not save or restore the name and time.
+.TP
+.BR \-N ", " \-\-name
+Save and restore the name and time.
+The decompressed file takes the stored name, in the directory of its input,
+and the stored time.
+.TP
+.BR \-m ", " \-\-no\-time
+Do not save or restore the time.
+.TP
+.BR \-M ", " \-\-time
+Save and restore the time.
+.SS Messages
+.TP
+.BR \-v ", " \-\-verbose
+Report the name and the reduction of each file processed.
+.TP
+.BR \-q ", " \-\-quiet
+Suppress warnings, and the reports of
+.BR \-v .
+.TP
+.BR \-h ", " \-\-help
+Show a summary of the options and exit.
+.TP
+.BR \-V ", " \-\-version
+Show the version, and that of the zlib\-ng it was built with, and exit.
+.TP
+.BR \-L ", " \-\-license
+Show the license and exit.
+.SS Compatibility
+.TP
+.B \-A
+Text mode, accepted for compatibility and without effect.
+.SH PARALLEL OPERATION
+Without
+.B \-b
+or
+.BR \-p ,
+compression writes one plain deflate stream on one thread.
+.PP
+With either, the input is cut into blocks,
+and each block is deflated on its own, so no block depends on another.
+The blocks are written in order as one ordinary gzip member,
+which any gzip can read.
+A block ends where the content says to,
+so a change to the input moves the boundaries with it
+and leaves the blocks past the change as they were.
+.PP
+Decompression uses every CPU by default.
+Files written in blocks, by
+.B gzip\-ng
+or by
+.BR "pigz \-i" ,
+are inflated in parallel, and so are BGZF and MiGz files.
+Any other gzip file is inflated serially.
+The output is the same at every thread count.
+.SH EXIT STATUS
+.TP
+.B 0
+Every file was processed.
+.TP
+.B 1
+An error occurred.
+.TP
+.B 2
+A warning was given and no error occurred,
+as when an output already exists or a directory is skipped.
+.SH EXAMPLES
+Compress
+.I file
+into
+.IR file .gz
+and remove the original.
+.PP
+.RS 4
+.EX
+gzip\-ng file
+.EE
+.RE
+.PP
+Compress on every CPU at the highest level, and keep the original.
+.PP
+.RS 4
+.EX
+gzip\-ng \-k \-9 \-p 0 file
+.EE
+.RE
+.PP
+Compress an archive from a pipe in blocks of 1 MiB on 8 threads.
+.PP
+.RS 4
+.EX
+tar \-cf \- dir | gzip\-ng \-b 1M \-p 8 > dir.tar.gz
+.EE
+.RE
+.PP
+Decompress to standard output and keep the file.
+.PP
+.RS 4
+.EX
+gzip\-ng \-dc file.gz
+.EE
+.RE
+.PP
+Check every gzip file under a directory.
+.PP
+.RS 4
+.EX
+gzip\-ng \-rtv dir
+.EE
+.RE
+.SH NOTES
+The
+.B GZIP
+environment variable is not read.
+.PP
+Only the
+.B .gz
+suffix is known, and there is no option to name another.
+.SH SEE ALSO
+.BR gzip (1),
+.BR pigz (1),
+.BR rsync (1)
+.PP
+RFC 1952, the gzip file format.
