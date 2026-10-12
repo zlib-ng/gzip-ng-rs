@@ -1,0 +1,85 @@
+name: Rust
+on: [push, pull_request]
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu x86_64
+            os: ubuntu-latest
+
+          - name: Ubuntu x86_64 no threads
+            os: ubuntu-latest
+            cargo-args: --no-default-features --features simd
+
+          - name: Ubuntu x86_64 no SIMD
+            os: ubuntu-latest
+            cargo-args: --no-default-features --features threads
+
+          - name: Ubuntu ARM64
+            os: ubuntu-24.04-arm
+
+          - name: macOS ARM64
+            os: macos-latest
+
+          # The sanitizers need nightly. Tests run one at a time, the runtime does not see the
+          # locks an uninstrumented standard library takes between test threads.
+          - name: macOS ARM64 TSAN
+            os: macos-latest
+            toolchain: nightly
+            rustflags: -Zsanitizer=thread -Cunsafe-allow-abi-mismatch=sanitizer
+            cflags: -fsanitize=thread
+            cargo-args: --target aarch64-apple-darwin --lib --bins --tests
+            test-args: --test-threads=1
+
+          # Apple's clang and rustc carry different ASAN runtimes, so zlib-ng stays uninstrumented.
+          - name: macOS ARM64 ASAN
+            os: macos-latest
+            toolchain: nightly
+            rustflags: -Zsanitizer=address -Cunsafe-allow-abi-mismatch=sanitizer
+            cargo-args: --target aarch64-apple-darwin --lib --bins --tests
+
+          - name: Windows MSVC x64
+            os: windows-latest
+
+          - name: Windows MSVC x86
+            os: windows-latest
+            target: i686-pc-windows-msvc
+            cargo-args: --target i686-pc-windows-msvc
+
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+      CFLAGS: ${{ matrix.cflags }}
+      ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:halt_on_error=1
+      TSAN_OPTIONS: abort_on_error=1:halt_on_error=1
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install toolchain
+        if: matrix.toolchain
+        run: |
+          rustup toolchain install ${{ matrix.toolchain }} --profile minimal
+          rustup default ${{ matrix.toolchain }}
+
+      - name: Install target
+        if: matrix.target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build project
+        run: cargo build ${{ matrix.cargo-args }}
+
+      - name: Run tests
+        timeout-minutes: 20
+        run: cargo test ${{ matrix.cargo-args }} -- ${{ matrix.test-args }}
+
+      - name: Build benchmarks
+        if: ${{ !matrix.cargo-args }}
+        run: cargo bench --no-run
