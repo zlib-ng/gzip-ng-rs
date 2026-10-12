@@ -101,7 +101,7 @@ jobs:
       - name: Package
         if: runner.os != 'Windows'
         run: |
-          dir=gzip-ng-${{ inputs.version }}-${{ matrix.arch }}
+          dir=gzip-ng-rs-${{ inputs.version }}-${{ matrix.arch }}
           mkdir -p pkg/$dir
           cp target/${{ matrix.target }}/release/gzip-ng LICENSE.md README.md pkg/$dir/
           if [ "$RUNNER_OS" = "Linux" ]; then
@@ -112,7 +112,7 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
-          $dir = "gzip-ng-${{ inputs.version }}-${{ matrix.arch }}"
+          $dir = "gzip-ng-rs-${{ inputs.version }}-${{ matrix.arch }}"
           New-Item -ItemType Directory -Path pkg/$dir | Out-Null
           Copy-Item target/${{ matrix.target }}/release/gzip-ng.exe, LICENSE.md, README.md pkg/$dir/
           Compress-Archive -Path pkg/$dir -DestinationPath "$dir.zip"
@@ -147,5 +147,5 @@ jobs:
           gh release create ${{ inputs.version }} dist/*
           --repo ${{ github.repository }}
           --target ${{ needs.check.outputs.sha }}
-          --title "gzip-ng ${{ inputs.version }}"
+          --title "gzip-ng-rs ${{ inputs.version }}"
           --generate-notes
