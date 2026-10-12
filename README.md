@@ -1,6 +1,8 @@
-# gzip-ng
+# gzip-ng-rs
 
 A gzip replacement built on [zlib-ng](https://github.com/zlib-ng/zlib-ng), with parallel compression into independent deflate blocks and parallel decompression of block-structured files, including `pigz -i` and `pigz --rsyncable -i` output.
+
+This is [gzip-ng](https://github.com/nmoinvaz/gzip-ng) in Rust. The command is still `gzip-ng`, and built against the same zlib-ng it writes the same bytes.
 
 ## Goals
 
@@ -13,22 +15,21 @@ A gzip replacement built on [zlib-ng](https://github.com/zlib-ng/zlib-ng), with 
 ## Build
 
 ```
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build
+git submodule update --init
+cargo build --release
+cargo test
 ```
 
-zlib-ng and Google Test are fetched automatically when not found.
+The command lands in `target/release/gzip-ng`. zlib-ng is a submodule pinned to a commit of its develop branch, built from source along with the rest, which needs CMake and a C compiler. `git submodule update --remote zlib-ng` moves the pin to the head of develop.
 
 ## Build Options
 
-| CMake                 | Description                                                | Default |
-|:----------------------|:-----------------------------------------------------------|---------|
-| GZNG_ENABLE_TESTS     | Build the test binaries and register them with ctest        | ON      |
-| GZNG_ENABLE_BENCHMARKS| Build the benchmarks using Google Benchmark                 | OFF     |
-| GZNG_THREADS          | Compress and decompress blocks on a thread pool             | ON      |
-| GZNG_SIMD             | Scan for block boundaries with NEON or SSE2                 | ON      |
-| GZNG_SANITIZER        | Build with a sanitizer, Address, Memory, Thread, or Undefined | None    |
+| Feature   | Description                                     | Default |
+|:----------|:------------------------------------------------|---------|
+| `threads` | Compress and decompress blocks on a thread pool | on      |
+| `simd`    | Scan for block boundaries with NEON or SSE2     | on      |
+
+Both are on by default, `cargo build --no-default-features --features simd` builds without threads.
 
 ## Usage
 
@@ -78,7 +79,7 @@ Exit status is 0, 1 on errors, 2 on warnings, as gzip behaves.
 - Decompression is parallel. pigz inflates every file serially, its extra threads only read, write, and check. gzip-ng probes for the marker pair and inflates blocks across the pool, for its own output and for `pigz --independent` output alike, decodes sized members, BGZF and MiGz, whole and in parallel, and falls back to plain inflate for any other gzip file.
 - `--blocksize` is the tradeoff knob. Independent blocks trade ratio for decode granularity and delta size, both endpoints keeping parallel decompression. Raising it recovers most of the ratio distance to chained pigz, 83% at `-b 1M` on a mixed corpus, lowering it shrinks how much of the output changes when the input does.
 - The deflate, inflate, and crc engine is zlib-ng, with SIMD in the block boundary scanner as well.
-- The core is a library. The block reader and writer sit behind callback IO in gzblock.h, and the command line is one caller of it.
+- The core is a library. The block reader and writer in `gzng::gzblock` work over any `Read` and `Write`, and the command line is one caller of them.
 - Not carried over from pigz: zopfli's `-11`, zlib and zip output formats, and `--suffix`.
 
 ## How it works
@@ -106,22 +107,20 @@ header | block 1 … 00 00 FF FF 00 00 00 FF FF | block 2 … 00 00 FF FF 00 00 
 
 ## Benchmarks
 
-Engine benchmarks use Google Benchmark, off by default:
+Engine benchmarks use Criterion:
 
 ```
-cmake -B build-bench -D CMAKE_BUILD_TYPE=Release -D GZNG_ENABLE_BENCHMARKS=ON
-cmake --build build-bench
-build-bench/test/benchmarks/benchmark_gzng
+cargo bench
 ```
 
-Comparing whole binaries is a different job, fork and exec noise belongs to tools built for it. `test/benchmarks/compare.sh [size-MB] [threads]` runs gzip-ng against the system gzip and pigz where installed, through hyperfine when available and a built-in best-of-3 timer otherwise.
+Comparing whole binaries is a different job, fork and exec noise belongs to tools built for it. `benches/compare.sh [size-MB] [threads]` runs gzip-ng against the system gzip and pigz where installed, through hyperfine when available and a built-in best-of-3 timer otherwise.
 
 ### Results
 
 Whole-tool comparisons live in [gzipbench](https://github.com/nmoinvaz/gzipbench),
 which runs the full matrix, level ladders 1 through 9, thread sweeps, the
 cross-decode grid, and a deflate block census, all against tools built on
-zlib-ng develop, and graphs each run:
+zlib-ng develop, and graphs each run. The graph is of the C gzip-ng:
 
 ![All tools, compress and decompress](https://raw.githubusercontent.com/nmoinvaz/gzipbench/main/results/all-tools.svg)
 
