@@ -5,7 +5,7 @@ mod common;
 
 use common::{block_compress, block_read, sample_data, varied_data, whole_inflate};
 use gzng::format::{self, Parse};
-use gzng::gzblock::Writer;
+use gzng::gzblock::{Code, Writer};
 use gzng::{DEFAULT_COMPRESSION, Strategy};
 
 #[test]
@@ -82,6 +82,27 @@ fn settings_come_before_the_first_write() {
 fn a_bad_block_size_is_refused() {
     assert!(Writer::new(Vec::new(), 6, Strategy::Default, 0, 1).is_err());
     assert!(Writer::new(Vec::new(), 6, Strategy::Default, gzng::gzblock::MAX_BLOCK + 1, 1).is_err());
+}
+
+#[test]
+fn a_bad_level_is_refused() {
+    for level in [-2, 10, 42] {
+        let err = Writer::new(Vec::new(), level, Strategy::Default, 64 * 1024, 2)
+            .err()
+            .unwrap();
+        assert_eq!(Code::Stream, err.code(), "level {level}: {err}");
+    }
+
+    // A refused change leaves the writer as it was.
+    let data = sample_data(200_000);
+    let mut out = Vec::new();
+    let mut w = Writer::new(&mut out, 6, Strategy::Default, 64 * 1024, 2).unwrap();
+    w.write(&data[..100_000]).unwrap();
+    assert_eq!(Code::Stream, w.set_params(42, Strategy::Default).unwrap_err().code());
+    w.write(&data[100_000..]).unwrap();
+    w.finish().unwrap();
+    drop(w);
+    assert_eq!(data, whole_inflate(&out, data.len()));
 }
 
 fn rsync_compress(data: &[u8]) -> Vec<u8> {

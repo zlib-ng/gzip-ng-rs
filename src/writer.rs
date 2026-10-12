@@ -3,6 +3,7 @@
 
 use std::io::{self, Write};
 
+use crate::DEFAULT_COMPRESSION;
 use crate::codec::Status;
 use crate::format::{self, Header};
 use crate::gzblock::{Code, Error, MAX_BLOCK, Result};
@@ -50,12 +51,21 @@ fn pool_size(level: i32, strategy: Strategy, nthreads: usize, in_size: usize) ->
     Pipeline::start(Mode::Deflate { level, strategy }, nthreads, in_size, out_size)
 }
 
+/// Deflate takes levels 0 to 9, and the one that leaves the choice to it.
+fn check_level(level: i32) -> Result<()> {
+    if !(DEFAULT_COMPRESSION..=9).contains(&level) {
+        return Err(Error::new(Code::Stream, "bad level"));
+    }
+    Ok(())
+}
+
 impl<W: Write> Writer<W> {
     /// nthreads of 0 picks the number of CPUs, 1 does the work on the calling thread.
     pub fn new(write: W, level: i32, strategy: Strategy, block_size: u32, nthreads: usize) -> Result<Self> {
         if block_size == 0 || block_size > MAX_BLOCK {
             return Err(Error::new(Code::Stream, "bad block size"));
         }
+        check_level(level)?;
         let nthreads = if nthreads > 0 {
             nthreads
         } else {
@@ -316,6 +326,7 @@ impl<W: Write> Writer<W> {
     /// Settings for the blocks to come.
     pub fn set_params(&mut self, level: i32, strategy: Strategy) -> Result<()> {
         self.check_open()?;
+        check_level(level)?;
         if level == self.level && strategy == self.strategy {
             return Ok(());
         }
