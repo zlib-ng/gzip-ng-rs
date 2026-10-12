@@ -1,0 +1,39 @@
+[package]
+name = "gzip-ng"
+version = "2.0.0"
+edition = "2024"
+description = "Parallel gzip replacement built on zlib-ng"
+license = "Zlib"
+repository = "https://github.com/nmoinvaz/gzip-ng-rs"
+readme = "README.md"
+keywords = ["gzip", "zlib-ng", "deflate", "compression", "parallel"]
+categories = ["compression", "command-line-utilities"]
+links = "z-ng"
+
+[lib]
+name = "gzng"
+
+[features]
+default = ["threads", "simd"]
+# Compress and decompress blocks on a thread pool.
+threads = []
+# Scan for block boundaries with NEON or SSE2.
+simd = []
+
+[dependencies]
+libc = "0.2"
+memchr = "2"
+
+[build-dependencies]
+cmake = "0.1.50"
+
+[dev-dependencies]
+criterion = "0.8"
+
+[[bench]]
+name = "gzblock"
+harness = false
+
+[[bench]]
+name = "scanner"
+harness = false
