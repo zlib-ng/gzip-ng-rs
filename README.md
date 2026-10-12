@@ -54,13 +54,13 @@ Compresses files in place, file to file.gz, removing the input unless kept. With
 | `-q` `--quiet` | Suppress warnings |
 | `-1` .. `-9` | Compression level, 7 by default |
 | `--fast` `--best` | Level 1 and level 9 |
-| `-b` `--blocksize` *size* | Average block size in KiB, or with a K, M, or G suffix |
+| `-b` `--blocksize` *size* | Average block size in KiB, or with a K or M suffix |
 | `-p` `--processes` *n* | Threads to use, which asks for blocks, 0 picks the number of CPUs |
 | `-H` `--huffman` | Huffman only strategy |
 | `-U` `--rle` | Run length strategy |
 | `--filtered` | Filtered strategy |
 | `--fixed` | Fixed codes strategy |
-| `-T` | Store without compressing |
+| `-T` | Copy through without compressing |
 | `-A` | Text mode, accepted for compatibility |
 | `--rsyncable` | Make a plain stream rsync friendly, block output always is |
 | `--synchronous` | Write outputs to permanent storage before removing inputs |
