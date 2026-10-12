@@ -19,7 +19,7 @@ cargo build --release
 cargo test
 ```
 
-The command lands in `target/release/gzip-ng`. Every build fetches the head of zlib-ng's develop branch and builds it from source along with the rest, which needs git, CMake, and a C compiler. With no network a build warns and uses the zlib-ng it fetched last. `ZLIBNG_TAG` names another branch or tag to build against.
+The command lands in `target/release/gzip-ng`. zlib-ng comes from the [libz-ng-sys](https://crates.io/crates/libz-ng-sys) crate, which builds the release it carries from source along with the rest and needs CMake and a C compiler.
 
 ## Build Options
 

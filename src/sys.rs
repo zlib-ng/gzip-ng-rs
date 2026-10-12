@@ -5,6 +5,9 @@
 
 use std::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
 
+// The zlib-ng declared here is the one libz-ng-sys builds and links.
+use libz_ng_sys as _;
+
 pub type alloc_func = Option<unsafe extern "C" fn(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void>;
 pub type free_func = Option<unsafe extern "C" fn(opaque: *mut c_void, address: *mut c_void)>;
 

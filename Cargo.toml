@@ -8,7 +8,6 @@ repository = "https://github.com/nmoinvaz/gzip-ng-rs"
 readme = "README.md"
 keywords = ["gzip", "zlib-ng", "deflate", "compression", "parallel"]
 categories = ["compression", "command-line-utilities"]
-links = "z-ng"
 
 [lib]
 name = "gzng"
@@ -20,10 +19,8 @@ threads = []
 
 [dependencies]
 libc = "0.2"
+libz-ng-sys = "1.1.30"
 memchr = "2"
-
-[build-dependencies]
-cmake = "0.1.50"
 
 [dev-dependencies]
 criterion = "0.8"
