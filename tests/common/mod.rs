@@ -8,7 +8,7 @@ use std::mem;
 
 use gzng::gzblock::{Reader, Writer};
 use gzng::sys as z;
-use gzng::{DEFAULT_COMPRESSION, Strategy};
+use gzng::{Compress, DEFAULT_COMPRESSION};
 
 pub const MAX_WBITS: i32 = 15;
 
@@ -34,9 +34,19 @@ pub fn pattern(len: usize) -> Vec<u8> {
     (0..len).map(|i| text[i % 29] + ((i / 4093) % 5) as u8).collect()
 }
 
+/// Settings for a block writer, the rest left at their defaults.
+pub fn block_params(level: i32, block_size: u32, threads: usize) -> Compress<'static> {
+    Compress {
+        level,
+        block_size,
+        threads,
+        ..Compress::default()
+    }
+}
+
 pub fn block_compress(data: &[u8], block_size: u32, nthreads: usize) -> Vec<u8> {
     let mut out = Vec::new();
-    let mut w = Writer::new(&mut out, DEFAULT_COMPRESSION, Strategy::Default, block_size, nthreads).unwrap();
+    let mut w = Writer::new(&mut out, &block_params(DEFAULT_COMPRESSION, block_size, nthreads)).unwrap();
 
     for chunk in data.chunks(65521) {
         w.write(chunk).unwrap();

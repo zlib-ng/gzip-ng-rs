@@ -11,7 +11,7 @@ use std::hint::black_box;
 use std::sync::LazyLock;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use gzng::Strategy;
+use gzng::Compress;
 use gzng::gzblock::Writer;
 use gzng::scanner::scan_marker;
 
@@ -23,8 +23,13 @@ static HAYSTACK: LazyLock<Vec<u8>> = LazyLock::new(|| {
             0x20 + ((s >> 24) & 0x3f) as u8
         })
         .collect();
+    let params = Compress {
+        level: 6,
+        block_size: 128 * 1024,
+        ..Compress::default()
+    };
     let mut out = Vec::new();
-    let mut w = Writer::new(&mut out, 6, Strategy::Default, 128 * 1024, 0).unwrap();
+    let mut w = Writer::new(&mut out, &params).unwrap();
     w.write(&data).unwrap();
     w.finish().unwrap();
     drop(w);

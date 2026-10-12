@@ -9,8 +9,8 @@ use std::io;
 use std::sync::LazyLock;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use gzng::Compress;
 use gzng::gzblock::{Reader, Writer};
-use gzng::{Compress, Strategy};
 
 const DATA_LEN: usize = 64 << 20;
 const BLOCK: u32 = 128 * 1024;
@@ -20,9 +20,19 @@ static SAMPLE: LazyLock<Vec<u8>> = LazyLock::new(|| {
     (0..DATA_LEN).map(|i| text[i % 44] + ((i / 8191) % 7) as u8).collect()
 });
 
+/// Settings for the block writer, on nthreads workers.
+fn block_params(nthreads: usize) -> Compress<'static> {
+    Compress {
+        level: 6,
+        block_size: BLOCK,
+        threads: nthreads,
+        ..Compress::default()
+    }
+}
+
 static BLOCK_PACKED: LazyLock<Vec<u8>> = LazyLock::new(|| {
     let mut out = Vec::new();
-    let mut w = Writer::new(&mut out, 6, Strategy::Default, BLOCK, 0).unwrap();
+    let mut w = Writer::new(&mut out, &block_params(0)).unwrap();
     w.write(&SAMPLE).unwrap();
     w.finish().unwrap();
     drop(w);
@@ -58,7 +68,7 @@ fn block_compress(c: &mut Criterion) {
     for nthreads in [1, 2, 4, 8] {
         group.bench_with_input(BenchmarkId::from_parameter(nthreads), &nthreads, |b, &nthreads| {
             b.iter(|| {
-                let mut w = Writer::new(io::sink(), 6, Strategy::Default, BLOCK, nthreads).unwrap();
+                let mut w = Writer::new(io::sink(), &block_params(nthreads)).unwrap();
                 w.write(&SAMPLE).unwrap();
                 w.finish().unwrap();
             });

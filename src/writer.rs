@@ -5,6 +5,7 @@ use std::io::{self, Write};
 
 use crate::DEFAULT_COMPRESSION;
 use crate::codec::Status;
+use crate::compress::Compress;
 use crate::format::{self, Header};
 use crate::gzblock::{Code, Error, MAX_BLOCK, Result};
 use crate::pipeline::Pipeline;
@@ -12,14 +13,69 @@ use crate::pool::{Mode, Pool, Slot};
 use crate::rolling;
 use crate::zng::{self, Deflater, MAX_WBITS, Strategy};
 
+/// Ends blocks at rolling hash hits after half fill, content-defined boundaries for rsync. The
+/// reader needs nothing special, pairs already carry any size.
+///
+/// The block size is a target here rather than a ceiling. Boundaries are refused before half a
+/// block is buffered and forced at twice one, and between those FastCDC's normalized cut crowds
+/// them just past block_size, a strict mask that rarely hits while the block is short of the
+/// target and a loose one that hits quickly once it is past. That puts the average about a tenth
+/// above block_size with every boundary content-defined. Content the hash never hits, such as a
+/// run of one byte, is still cut at twice it.
+struct Rsync {
+    hash: u32,
+    /// Strict mask while the block is short of block_size.
+    mask_lo: u32,
+    /// Loose mask once it is past.
+    mask_hi: u32,
+    /// No early end before this much of the block is filled.
+    min: usize,
+    /// A block is cut on size alone only here.
+    max: usize,
+}
+
+impl Rsync {
+    fn new(block_size: usize) -> Self {
+        Self {
+            hash: 0,
+            mask_lo: rolling::mask(block_size * 4),
+            mask_hi: rolling::mask(block_size / 8),
+            min: block_size / 2,
+            max: block_size * 2,
+        }
+    }
+
+    /// A hash hit after the minimum fill ends the block there, so boundaries follow the content
+    /// and an edit re-aligns at the next hit instead of shifting every block. The strict mask
+    /// covers the input up to a full block_size and the loose mask what lies past it. Shortens
+    /// take to end at the first hit. Returns true on a hit.
+    fn cut(&mut self, block_size: usize, fill: usize, buf: &[u8], take: &mut usize) -> bool {
+        let first = if fill + 1 >= self.min { 0 } else { self.min - fill - 1 };
+        let lo_end = if fill >= block_size {
+            0
+        } else {
+            (*take).min(block_size - fill)
+        };
+        let mut hit = rolling::find(&mut self.hash, self.mask_lo, &buf[..lo_end], first);
+
+        if hit == lo_end && *take > lo_end {
+            hit = rolling::find(&mut self.hash, self.mask_hi, &buf[..*take], lo_end);
+        }
+        if hit == *take {
+            return false;
+        }
+        *take = hit + 1;
+        true
+    }
+}
+
 /// Produces one gzip member whose deflate stream is cut into independent blocks of block_size
-/// input bytes, deflated on nthreads threads.
+/// input bytes, deflated on a pool of threads.
 pub struct Writer<W: Write> {
     write: W,
     block_size: u32,
     level: i32,
     strategy: Strategy,
-    nthreads: usize,
     pipeline: Pipeline,
     /// Slot being filled.
     cur: Option<Slot>,
@@ -32,20 +88,11 @@ pub struct Writer<W: Write> {
     mtime: u32,
     name: Vec<u8>,
     /// End blocks at rolling hash hits so edits stay local.
-    rsyncable: bool,
-    rsync_hash: u32,
-    /// Strict mask while the block is short of block_size.
-    rsync_mask_lo: u32,
-    /// Loose mask once it is past.
-    rsync_mask_hi: u32,
-    /// A block is cut on size alone only here.
-    rsync_max: usize,
-    /// No early end before this much of the block is filled.
-    rsync_min: usize,
+    rsync: Option<Rsync>,
 }
 
-/// Size the ring for blocks of up to in_size input bytes and start the workers.
-fn pool_size(level: i32, strategy: Strategy, nthreads: usize, in_size: usize) -> Option<Pipeline> {
+/// Start the workers on a ring sized for blocks of up to in_size input bytes.
+fn start_pipeline(level: i32, strategy: Strategy, nthreads: usize, in_size: usize) -> Option<Pipeline> {
     let out_size = Deflater::new(level, -MAX_WBITS, strategy)?.bound(in_size) + 32;
 
     Pipeline::start(Mode::Deflate { level, strategy }, nthreads, in_size, out_size)
@@ -60,26 +107,34 @@ fn check_level(level: i32) -> Result<()> {
 }
 
 impl<W: Write> Writer<W> {
-    /// nthreads of 0 picks the number of CPUs, 1 does the work on the calling thread.
-    pub fn new(write: W, level: i32, strategy: Strategy, block_size: u32, nthreads: usize) -> Result<Self> {
+    /// A member made the way params says, which has to name a block size. Threads of 0 picks the
+    /// number of CPUs, 1 does the work on the calling thread. A name of format::NAME_MAX bytes or
+    /// longer is left out.
+    pub fn new(write: W, params: &Compress) -> Result<Self> {
+        let block_size = params.block_size;
+
         if block_size == 0 || block_size > MAX_BLOCK {
             return Err(Error::new(Code::Stream, "bad block size"));
         }
-        check_level(level)?;
-        let nthreads = if nthreads > 0 {
-            nthreads
+        check_level(params.level)?;
+        let nthreads = if params.threads > 0 {
+            params.threads
         } else {
             Pool::default_threads()
         };
-        let pipeline = pool_size(level, strategy, nthreads, block_size as usize)
+        let rsync = params.rsyncable.then(|| Rsync::new(block_size as usize));
+        // A block that ends with the content can run past block_size, and the ring holds the
+        // largest.
+        let in_size = rsync.as_ref().map_or(block_size as usize, |rsync| rsync.max);
+        let pipeline = start_pipeline(params.level, params.strategy, nthreads, in_size)
             .ok_or_else(|| Error::new(Code::Mem, "cannot start threads"))?;
+        let name = params.name.filter(|name| name.len() < format::NAME_MAX);
 
         Ok(Self {
             write,
             block_size,
-            level,
-            strategy,
-            nthreads,
+            level: params.level,
+            strategy: params.strategy,
             pipeline,
             cur: None,
             crc: 0,
@@ -87,14 +142,9 @@ impl<W: Write> Writer<W> {
             hdr_written: false,
             finished: false,
             failed: None,
-            mtime: 0,
-            name: Vec::new(),
-            rsyncable: false,
-            rsync_hash: 0,
-            rsync_mask_lo: 0,
-            rsync_mask_hi: 0,
-            rsync_max: 0,
-            rsync_min: 0,
+            mtime: params.mtime,
+            name: name.unwrap_or_default().to_vec(),
+            rsync,
         })
     }
 
@@ -127,15 +177,6 @@ impl<W: Write> Writer<W> {
         self.check_failed()?;
         if self.finished {
             return Err(Error::new(Code::Stream, "the member is finished"));
-        }
-        Ok(())
-    }
-
-    /// The header takes its settings before the first write.
-    fn check_unwritten(&self) -> Result<()> {
-        self.check_failed()?;
-        if self.hdr_written {
-            return Err(Error::new(Code::Stream, "the header is already written"));
         }
         Ok(())
     }
@@ -227,90 +268,21 @@ impl<W: Write> Writer<W> {
     // ===========================================================================
     // The writer object
 
-    /// End blocks at rolling hash hits after half fill, content-defined boundaries for rsync,
-    /// before the first write. The reader needs nothing special, pairs already carry any size.
-    ///
-    /// With --rsyncable the block size is a target rather than a ceiling. Boundaries are refused
-    /// before half a block is buffered and forced at twice one, and between those FastCDC's
-    /// normalized cut crowds them just past block_size, a strict mask that rarely hits while the
-    /// block is short of the target and a loose one that hits quickly once it is past. That puts
-    /// the average about a tenth above block_size with every boundary content-defined. Content
-    /// the hash never hits, such as a run of one byte, is still cut at twice it.
-    pub fn rsyncable(&mut self, on: bool) -> Result<()> {
-        self.check_unwritten()?;
-        if !on {
-            self.rsyncable = false;
-            return Ok(());
-        }
-        // The limit widens here, which takes a new ring, so no block can be in the old one.
-        if self.cur.is_some() || self.pipeline.has_pending() {
-            return Err(Error::new(Code::Stream, "input is already written"));
-        }
-        self.rsync_min = self.block_size as usize / 2;
-        self.rsync_mask_lo = rolling::mask(self.block_size as usize * 4);
-        self.rsync_mask_hi = rolling::mask(self.block_size as usize / 8);
-        self.rsync_max = self.block_size as usize * 2;
-        match pool_size(self.level, self.strategy, self.nthreads, self.rsync_max) {
-            Some(pipeline) => self.pipeline = pipeline,
-            None => return self.fail(Code::Mem, "cannot start threads", None),
-        }
-        self.rsyncable = true;
-        Ok(())
-    }
-
-    /// Record a modification time and file name for the header, before the first write. A name of
-    /// format::NAME_MAX bytes or longer is left out.
-    pub fn meta(&mut self, mtime: u32, name: Option<&[u8]>) -> Result<()> {
-        self.check_unwritten()?;
-        self.mtime = mtime;
-        if let Some(name) = name.filter(|name| name.len() < format::NAME_MAX) {
-            self.name = name.to_vec();
-        }
-        Ok(())
-    }
-
-    /// A hash hit after the minimum fill ends the block there, so boundaries follow the content
-    /// and an edit re-aligns at the next hit instead of shifting every block. The strict mask
-    /// covers the input up to a full block_size and the loose mask what lies past it. Shortens
-    /// take to end at the first hit. Returns true on a hit.
-    fn rsync_cut(&mut self, fill: usize, buf: &[u8], take: &mut usize) -> bool {
-        let block_size = self.block_size as usize;
-        let first = if fill + 1 >= self.rsync_min {
-            0
-        } else {
-            self.rsync_min - fill - 1
-        };
-        let lo_end = if fill >= block_size {
-            0
-        } else {
-            (*take).min(block_size - fill)
-        };
-        let mut hit = rolling::find(&mut self.rsync_hash, self.rsync_mask_lo, &buf[..lo_end], first);
-
-        if hit == lo_end && *take > lo_end {
-            hit = rolling::find(&mut self.rsync_hash, self.rsync_mask_hi, &buf[..*take], lo_end);
-        }
-        if hit == *take {
-            return false;
-        }
-        *take = hit + 1;
-        true
-    }
-
     pub fn write(&mut self, mut buf: &[u8]) -> Result<()> {
+        let block_size = self.block_size as usize;
+
         self.check_open()?;
         while !buf.is_empty() {
             if self.cur.is_none() {
                 self.acquire()?;
             }
-            let limit = if self.rsyncable {
-                self.rsync_max
-            } else {
-                self.block_size as usize
-            };
+            let limit = self.rsync.as_ref().map_or(block_size, |rsync| rsync.max);
             let fill = self.cur.as_ref().map_or(0, |slot| slot.in_len);
             let mut take = (limit - fill).min(buf.len());
-            let hit = self.rsyncable && self.rsync_cut(fill, buf, &mut take);
+            let hit = match &mut self.rsync {
+                Some(rsync) => rsync.cut(block_size, fill, buf, &mut take),
+                None => false,
+            };
 
             if let Some(slot) = &mut self.cur {
                 slot.append(&buf[..take]);

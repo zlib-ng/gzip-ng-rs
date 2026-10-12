@@ -3,10 +3,10 @@
 
 mod common;
 
-use common::{MemIn, block_compress, block_read, gzip, sample_data, varied_data, whole_inflate};
-use gzng::Strategy;
+use common::{MemIn, block_compress, block_params, block_read, gzip, sample_data, varied_data, whole_inflate};
 use gzng::gzblock::{Code, Reader, Writer};
 use gzng::sys::{Z_FULL_FLUSH, Z_SYNC_FLUSH};
+use gzng::{Compress, Strategy};
 
 #[test]
 fn roundtrip_across_thread_counts() {
@@ -61,10 +61,13 @@ fn blocks_larger_than_the_probe_assumes_still_decode() {
     // than give up part way through the member.
     let data = varied_data(6 << 20); // barely compressible, so the segments stay large
     let mut packed = Vec::new();
-    let mut w = Writer::new(&mut packed, 6, Strategy::Default, 512 * 1024, 2).unwrap();
     // Content-defined ends, so the blocks vary and an early one can fit the reader's assumption
     // while a later one does not, which is past the point where it could start over.
-    w.rsyncable(true).unwrap();
+    let params = Compress {
+        rsyncable: true,
+        ..block_params(6, 512 * 1024, 2)
+    };
+    let mut w = Writer::new(&mut packed, &params).unwrap();
     w.write(&data).unwrap();
     w.finish().unwrap();
     drop(w);
@@ -82,7 +85,7 @@ fn false_pair_in_a_block_larger_than_the_probe_assumes() {
     let mut data = sample_data(1 << 20);
     data[300_000..300_009].copy_from_slice(&[0, 0, 0xff, 0xff, 0, 0, 0, 0xff, 0xff]);
     let mut out = Vec::new();
-    let mut w = Writer::new(&mut out, 0, Strategy::Default, 512 * 1024, 1).unwrap();
+    let mut w = Writer::new(&mut out, &block_params(0, 512 * 1024, 1)).unwrap();
     w.write(&data).unwrap();
     w.finish().unwrap();
     drop(w);
@@ -113,8 +116,11 @@ fn flushed_blocks_of_any_length() {
     let data = varied_data(3 << 20);
     for rsync in [false, true] {
         let mut out = Vec::new();
-        let mut w = Writer::new(&mut out, 6, Strategy::Default, 64 * 1024, 2).unwrap();
-        w.rsyncable(rsync).unwrap();
+        let params = Compress {
+            rsyncable: rsync,
+            ..block_params(6, 64 * 1024, 2)
+        };
+        let mut w = Writer::new(&mut out, &params).unwrap();
         let mut pos = 0;
         for cut in [1, 7, 5000, 70000, 200_001, data.len()] {
             w.write(&data[pos..cut]).unwrap();

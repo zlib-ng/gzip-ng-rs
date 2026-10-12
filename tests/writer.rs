@@ -3,10 +3,10 @@
 
 mod common;
 
-use common::{block_compress, block_read, sample_data, varied_data, whole_inflate};
+use common::{block_compress, block_params, block_read, sample_data, varied_data, whole_inflate};
 use gzng::format::{self, Parse};
 use gzng::gzblock::{Code, Writer};
-use gzng::{DEFAULT_COMPRESSION, Strategy};
+use gzng::{Compress, DEFAULT_COMPRESSION, Strategy};
 
 #[test]
 fn header_is_an_ordinary_gzip_header() {
@@ -36,7 +36,7 @@ fn threads_do_not_change_the_bytes() {
 fn flush_and_params_inside_a_block() {
     let data = sample_data(300_000);
     let mut out = Vec::new();
-    let mut w = Writer::new(&mut out, DEFAULT_COMPRESSION, Strategy::Default, 64 * 1024, 2).unwrap();
+    let mut w = Writer::new(&mut out, &block_params(DEFAULT_COMPRESSION, 64 * 1024, 2)).unwrap();
     w.write(&data[..100_000]).unwrap();
     w.flush().unwrap();
     w.set_params(1, Strategy::Default).unwrap();
@@ -50,8 +50,12 @@ fn flush_and_params_inside_a_block() {
 fn meta_lands_in_the_header() {
     let data = sample_data(1000);
     let mut out = Vec::new();
-    let mut w = Writer::new(&mut out, 6, Strategy::Default, 64 * 1024, 1).unwrap();
-    w.meta(12345, Some(b"hello.txt")).unwrap();
+    let params = Compress {
+        mtime: 12345,
+        name: Some(b"hello.txt"),
+        ..block_params(6, 64 * 1024, 1)
+    };
+    let mut w = Writer::new(&mut out, &params).unwrap();
     w.write(&data).unwrap();
     w.finish().unwrap();
     drop(w);
@@ -63,14 +67,12 @@ fn meta_lands_in_the_header() {
 }
 
 #[test]
-fn settings_come_before_the_first_write() {
+fn a_finished_member_takes_no_more() {
     let data = varied_data(300_000);
     let mut out = Vec::new();
-    let mut w = Writer::new(&mut out, 6, Strategy::Default, 64 * 1024, 1).unwrap();
+    let mut w = Writer::new(&mut out, &block_params(6, 64 * 1024, 1)).unwrap();
     w.write(&data).unwrap();
-    assert!(w.rsyncable(true).is_err(), "the pool cannot be resized under a block");
     w.flush().unwrap();
-    assert!(w.meta(1, None).is_err(), "the header is out");
     w.finish().unwrap();
     assert!(w.write(&data).is_err(), "the member is finished");
     w.finish().unwrap();
@@ -80,14 +82,14 @@ fn settings_come_before_the_first_write() {
 
 #[test]
 fn a_bad_block_size_is_refused() {
-    assert!(Writer::new(Vec::new(), 6, Strategy::Default, 0, 1).is_err());
-    assert!(Writer::new(Vec::new(), 6, Strategy::Default, gzng::gzblock::MAX_BLOCK + 1, 1).is_err());
+    assert!(Writer::new(Vec::new(), &block_params(6, 0, 1)).is_err());
+    assert!(Writer::new(Vec::new(), &block_params(6, gzng::gzblock::MAX_BLOCK + 1, 1)).is_err());
 }
 
 #[test]
 fn a_bad_level_is_refused() {
     for level in [-2, 10, 42] {
-        let err = Writer::new(Vec::new(), level, Strategy::Default, 64 * 1024, 2)
+        let err = Writer::new(Vec::new(), &block_params(level, 64 * 1024, 2))
             .err()
             .unwrap();
         assert_eq!(Code::Stream, err.code(), "level {level}: {err}");
@@ -96,7 +98,7 @@ fn a_bad_level_is_refused() {
     // A refused change leaves the writer as it was.
     let data = sample_data(200_000);
     let mut out = Vec::new();
-    let mut w = Writer::new(&mut out, 6, Strategy::Default, 64 * 1024, 2).unwrap();
+    let mut w = Writer::new(&mut out, &block_params(6, 64 * 1024, 2)).unwrap();
     w.write(&data[..100_000]).unwrap();
     assert_eq!(Code::Stream, w.set_params(42, Strategy::Default).unwrap_err().code());
     w.write(&data[100_000..]).unwrap();
@@ -106,9 +108,12 @@ fn a_bad_level_is_refused() {
 }
 
 fn rsync_compress(data: &[u8]) -> Vec<u8> {
+    let params = Compress {
+        rsyncable: true,
+        ..block_params(6, 64 * 1024, 1)
+    };
     let mut out = Vec::new();
-    let mut w = Writer::new(&mut out, 6, Strategy::Default, 64 * 1024, 1).unwrap();
-    w.rsyncable(true).unwrap();
+    let mut w = Writer::new(&mut out, &params).unwrap();
     w.write(data).unwrap();
     w.finish().unwrap();
     drop(w);

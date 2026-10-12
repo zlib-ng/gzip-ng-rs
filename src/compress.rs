@@ -15,16 +15,18 @@ pub const DEFAULT_BLOCK: u32 = 128 << 10;
 
 const WRITE_BUFFER: usize = 64 * 1024;
 
-/// How compress_stream() makes its one gzip member.
+/// How one gzip member is made, by compress_stream() or by a block Writer.
 #[derive(Clone, Copy, Debug)]
 pub struct Compress<'a> {
     pub level: i32,
     pub strategy: Strategy,
-    /// 0 writes one plain deflate stream, anything else independent blocks of about this size.
+    /// About how much input an independent block holds. At 0 compress_stream() writes one plain
+    /// deflate stream instead, which a Writer cannot.
     pub block_size: u32,
     /// Workers for the blocks, 0 picks the number of CPUs.
     pub threads: usize,
-    /// Make the plain stream rsync friendly, block output always is.
+    /// Make the output rsync friendly, a plain stream with sync points and a Writer's blocks with
+    /// ends that follow the content. compress_stream() always does for blocks.
     pub rsyncable: bool,
     /// The time the header records, 0 for none.
     pub mtime: u32,
@@ -67,16 +69,16 @@ impl<W: Write> Write for CountWrite<W> {
 /// Compress through the block engine, independent blocks sealed with marker pairs.
 fn block_compress_stream<R: Read, W: Write>(mut input: R, out: W, params: &Compress) -> io::Result<Totals> {
     let out = CountWrite { out, total: 0 };
-    let mut writer = Writer::new(out, params.level, params.strategy, params.block_size, params.threads)?;
+    // Boundaries always follow the content. It costs 0.02% of the output and keeps an edit
+    // local, so it is not worth putting behind a flag.
+    let params = Compress {
+        rsyncable: true,
+        ..*params
+    };
+    let mut writer = Writer::new(out, &params)?;
     let mut buf = vec![0; IO_CHUNK];
     let mut total_in = 0;
 
-    if params.mtime != 0 || params.name.is_some() {
-        writer.meta(params.mtime, params.name)?;
-    }
-    // Boundaries always follow the content. It costs 0.02% of the output and keeps an edit
-    // local, so it is not worth putting behind a flag.
-    writer.rsyncable(true)?;
     loop {
         let n = read_full(&mut input, &mut buf)?;
         if n == 0 {
