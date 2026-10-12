@@ -70,7 +70,8 @@ impl Rsync {
 }
 
 /// Produces one gzip member whose deflate stream is cut into independent blocks of block_size
-/// input bytes, deflated on a pool of threads.
+/// input bytes, deflated on a pool of threads. The input goes in through Write, and finish() ends
+/// the member.
 pub struct Writer<W: Write> {
     write: W,
     block_size: u32,
@@ -265,10 +266,8 @@ impl<W: Write> Writer<W> {
         }
     }
 
-    // ===========================================================================
-    // The writer object
-
-    pub fn write(&mut self, mut buf: &[u8]) -> Result<()> {
+    /// Take all of buf into blocks, handing each to the pool as it fills or ends.
+    fn put(&mut self, mut buf: &[u8]) -> Result<()> {
         let block_size = self.block_size as usize;
 
         self.check_open()?;
@@ -295,6 +294,9 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
 
+    // ===========================================================================
+    // The writer object
+
     /// Settings for the blocks to come.
     pub fn set_params(&mut self, level: i32, strategy: Strategy) -> Result<()> {
         self.check_open()?;
@@ -308,14 +310,6 @@ impl<W: Write> Writer<W> {
         self.level = level;
         self.strategy = strategy;
         Ok(())
-    }
-
-    /// End the current block early and write everything out.
-    pub fn flush(&mut self) -> Result<()> {
-        self.check_open()?;
-        self.cut();
-        self.drain_all()?;
-        self.header()
     }
 
     /// Write the last block and the trailer.
@@ -333,5 +327,28 @@ impl<W: Write> Writer<W> {
         self.out(&format::trailer_build(self.crc, self.total_in))?;
         self.finished = true;
         Ok(())
+    }
+}
+
+/// An error from the block engine comes back as the io error's payload.
+impl<W: Write> Write for Writer<W> {
+    /// Takes all of buf, every time.
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.put(buf)?;
+        Ok(buf.len())
+    }
+
+    /// End the current block early and write everything out, then flush the output itself.
+    fn flush(&mut self) -> io::Result<()> {
+        self.check_failed()?;
+        if !self.finished {
+            self.cut();
+            self.drain_all()?;
+            self.header()?;
+        }
+        match self.write.flush() {
+            Ok(()) => Ok(()),
+            Err(err) => Ok(self.fail(Code::Errno, "write error", Some(err))?),
+        }
     }
 }

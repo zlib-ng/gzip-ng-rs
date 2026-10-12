@@ -81,6 +81,11 @@ impl Error {
     pub fn io_error(&self) -> Option<&io::Error> {
         self.source.as_ref()
     }
+
+    /// The error an io error from the reader or the writer carries, None for any other.
+    pub fn from_io(err: &io::Error) -> Option<&Self> {
+        err.get_ref()?.downcast_ref()
+    }
 }
 
 impl fmt::Display for Error {

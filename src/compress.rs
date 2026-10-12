@@ -85,7 +85,7 @@ fn block_compress_stream<R: Read, W: Write>(mut input: R, out: W, params: &Compr
             break;
         }
         total_in += n as u64;
-        writer.write(&buf[..n])?;
+        writer.write_all(&buf[..n])?;
     }
     writer.finish()?;
     Ok(Totals {

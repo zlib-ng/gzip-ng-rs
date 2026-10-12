@@ -41,7 +41,7 @@ fn os_message(err: &io::Error) -> String {
 /// Report a failure on path. An error from the block engine brings a message of its own, and
 /// only the system's errors have anything to add about the path.
 fn fail(path: impl Display, err: &io::Error) {
-    let engine = err.get_ref().and_then(|inner| inner.downcast_ref::<gzblock::Error>());
+    let engine = gzblock::Error::from_io(err);
     let os = match engine {
         Some(engine) => {
             eprintln!("gzip-ng: {engine}");

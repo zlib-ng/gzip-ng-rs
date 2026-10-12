@@ -1,7 +1,7 @@
 // decompress.rs -- decompression through the block engine reader
 // For conditions of distribution and use, see LICENSE.md
 
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, Read, Write};
 
 use crate::Totals;
 use crate::gzblock::Reader;
@@ -32,12 +32,14 @@ pub fn decompress_stream<R: Read, W: Write>(input: R, mut out: W, head: &[u8], t
     let mut total_out = 0;
 
     loop {
-        let piece = reader.next()?;
-        if piece.is_empty() {
+        let piece = reader.fill_buf()?;
+        let n = piece.len();
+        if n == 0 {
             break;
         }
-        total_out += piece.len() as u64;
+        total_out += n as u64;
         out.write_all(piece)?;
+        reader.consume(n);
     }
     Ok(Totals {
         total_in: reader.get_ref().total,

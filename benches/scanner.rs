@@ -8,6 +8,7 @@
 // Compressed bytes hold about one zero per 256, so the loop stops for a candidate that often.
 
 use std::hint::black_box;
+use std::io::Write;
 use std::sync::LazyLock;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
@@ -30,7 +31,7 @@ static HAYSTACK: LazyLock<Vec<u8>> = LazyLock::new(|| {
     };
     let mut out = Vec::new();
     let mut w = Writer::new(&mut out, &params).unwrap();
-    w.write(&data).unwrap();
+    w.write_all(&data).unwrap();
     w.finish().unwrap();
     drop(w);
     out

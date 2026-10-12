@@ -3,7 +3,7 @@
 
 #![allow(dead_code)]
 
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::mem;
 
 use gzng::gzblock::{Reader, Writer};
@@ -49,7 +49,7 @@ pub fn block_compress(data: &[u8], block_size: u32, nthreads: usize) -> Vec<u8> 
     let mut w = Writer::new(&mut out, &block_params(DEFAULT_COMPRESSION, block_size, nthreads)).unwrap();
 
     for chunk in data.chunks(65521) {
-        w.write(chunk).unwrap();
+        w.write_all(chunk).unwrap();
     }
     w.finish().unwrap();
     drop(w);

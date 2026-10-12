@@ -3,10 +3,20 @@
 
 mod common;
 
+use std::io::{BufRead, Read, Write};
+
 use common::{MemIn, block_compress, block_params, block_read, gzip, sample_data, varied_data, whole_inflate};
-use gzng::gzblock::{Code, Reader, Writer};
+use gzng::gzblock::{Code, Error, Reader, Writer};
 use gzng::sys::{Z_FULL_FLUSH, Z_SYNC_FLUSH};
 use gzng::{Compress, Strategy};
+
+/// Read to the end, which has to fail, and give back the engine's code and message.
+fn failure(r: &mut impl Read) -> (Code, String) {
+    let err = r.read_to_end(&mut Vec::new()).unwrap_err();
+    let engine = Error::from_io(&err).expect("the engine's error rides along");
+
+    (engine.code(), engine.message().to_string())
+}
 
 #[test]
 fn roundtrip_across_thread_counts() {
@@ -28,13 +38,15 @@ fn zero_copy_handout() {
     let mut r = Reader::new(input, &[], 3).unwrap();
     let mut out = Vec::new();
     loop {
-        let piece = r.next().unwrap();
-        if piece.is_empty() {
+        let piece = r.fill_buf().unwrap();
+        let n = piece.len();
+        if n == 0 {
             break;
         }
         out.extend_from_slice(piece);
+        r.consume(n);
     }
-    assert!(r.next().unwrap().is_empty(), "the end stays the end");
+    assert!(r.fill_buf().unwrap().is_empty(), "the end stays the end");
     assert_eq!(data, out);
 }
 
@@ -68,7 +80,7 @@ fn blocks_larger_than_the_probe_assumes_still_decode() {
         ..block_params(6, 512 * 1024, 2)
     };
     let mut w = Writer::new(&mut packed, &params).unwrap();
-    w.write(&data).unwrap();
+    w.write_all(&data).unwrap();
     w.finish().unwrap();
     drop(w);
 
@@ -86,7 +98,7 @@ fn false_pair_in_a_block_larger_than_the_probe_assumes() {
     data[300_000..300_009].copy_from_slice(&[0, 0, 0xff, 0xff, 0, 0, 0, 0xff, 0xff]);
     let mut out = Vec::new();
     let mut w = Writer::new(&mut out, &block_params(0, 512 * 1024, 1)).unwrap();
-    w.write(&data).unwrap();
+    w.write_all(&data).unwrap();
     w.finish().unwrap();
     drop(w);
 
@@ -123,7 +135,7 @@ fn flushed_blocks_of_any_length() {
         let mut w = Writer::new(&mut out, &params).unwrap();
         let mut pos = 0;
         for cut in [1, 7, 5000, 70000, 200_001, data.len()] {
-            w.write(&data[pos..cut]).unwrap();
+            w.write_all(&data[pos..cut]).unwrap();
             w.flush().unwrap();
             w.set_params(if cut % 2 != 0 { 1 } else { 9 }, Strategy::Default)
                 .unwrap();
@@ -144,9 +156,9 @@ fn head_bytes_come_first() {
     let packed = block_compress(&data, 64 * 1024, 2);
     let (head, rest) = packed.split_at(2);
     let mut r = Reader::new(rest, head, 3).unwrap();
-    let mut out = vec![0; data.len() + 1];
-    let got = r.read(&mut out).unwrap();
-    assert_eq!(data, out[..got]);
+    let mut out = Vec::new();
+    r.read_to_end(&mut out).unwrap();
+    assert_eq!(data, out);
 }
 
 #[test]
@@ -158,11 +170,9 @@ fn damage_is_reported_and_stays_reported() {
 
     for nthreads in [1, 3] {
         let mut r = Reader::new(&packed[..], &[], nthreads).unwrap();
-        let mut buf = vec![0; data.len() + 1];
-        let err = r.read(&mut buf).unwrap_err();
-        assert_eq!(Code::Data, err.code(), "nthreads {nthreads}: {err}");
-        let again = r.read(&mut buf).unwrap_err();
-        assert_eq!((err.code(), err.message()), (again.code(), again.message()));
+        let (code, msg) = failure(&mut r);
+        assert_eq!(Code::Data, code, "nthreads {nthreads}: {msg}");
+        assert_eq!((code, msg), failure(&mut r));
     }
 }
 
@@ -176,10 +186,9 @@ fn a_changed_trailer_fails_the_member() {
         let mut packed = good.clone();
         packed[at] ^= 1;
         let mut r = Reader::new(&packed[..], &[], 3).unwrap();
-        let mut buf = vec![0; data.len() + 1];
-        let err = r.read(&mut buf).unwrap_err();
-        assert_eq!(Code::Data, err.code());
-        assert!(err.message().contains(what), "{err}");
+        let (code, msg) = failure(&mut r);
+        assert_eq!(Code::Data, code);
+        assert!(msg.contains(what), "{msg}");
     }
 }
 
@@ -190,8 +199,7 @@ fn truncated_blocks_end_early() {
 
     for nthreads in [1, 3] {
         let mut r = Reader::new(&packed[..packed.len() / 2], &[], nthreads).unwrap();
-        let mut buf = vec![0; data.len() + 1];
-        let err = r.read(&mut buf).unwrap_err();
-        assert_eq!(Code::Buf, err.code(), "nthreads {nthreads}: {err}");
+        let (code, msg) = failure(&mut r);
+        assert_eq!(Code::Buf, code, "nthreads {nthreads}: {msg}");
     }
 }

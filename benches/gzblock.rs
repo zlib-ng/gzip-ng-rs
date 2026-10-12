@@ -5,7 +5,7 @@
 // Criterion measures.
 
 use std::hint::black_box;
-use std::io;
+use std::io::{self, BufRead, Write};
 use std::sync::LazyLock;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
@@ -33,7 +33,7 @@ fn block_params(nthreads: usize) -> Compress<'static> {
 static BLOCK_PACKED: LazyLock<Vec<u8>> = LazyLock::new(|| {
     let mut out = Vec::new();
     let mut w = Writer::new(&mut out, &block_params(0)).unwrap();
-    w.write(&SAMPLE).unwrap();
+    w.write_all(&SAMPLE).unwrap();
     w.finish().unwrap();
     drop(w);
     out
@@ -52,9 +52,11 @@ static PLAIN_PACKED: LazyLock<Vec<u8>> = LazyLock::new(|| {
 fn read_all(packed: &[u8], nthreads: usize) {
     let mut r = Reader::new(packed, &[], nthreads).unwrap();
     loop {
-        match r.next() {
+        match r.fill_buf() {
             Ok(piece) if !piece.is_empty() => {
+                let n = piece.len();
                 black_box(piece);
+                r.consume(n);
             }
             _ => break,
         }
@@ -69,7 +71,7 @@ fn block_compress(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(nthreads), &nthreads, |b, &nthreads| {
             b.iter(|| {
                 let mut w = Writer::new(io::sink(), &block_params(nthreads)).unwrap();
-                w.write(&SAMPLE).unwrap();
+                w.write_all(&SAMPLE).unwrap();
                 w.finish().unwrap();
             });
         });

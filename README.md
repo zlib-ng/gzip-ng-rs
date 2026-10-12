@@ -77,7 +77,7 @@ Exit status is 0, 1 on errors, 2 on warnings, as gzip behaves.
 - Decompression is parallel. pigz inflates every file serially, its extra threads only read, write, and check. gzip-ng probes for the marker pair and inflates blocks across the pool, for its own output and for `pigz --independent` output alike, decodes sized members, BGZF and MiGz, whole and in parallel, and falls back to plain inflate for any other gzip file.
 - `--blocksize` is the tradeoff knob. Independent blocks trade ratio for decode granularity and delta size, both endpoints keeping parallel decompression. Raising it recovers most of the ratio distance to chained pigz, 83% at `-b 1M` on a mixed corpus, lowering it shrinks how much of the output changes when the input does.
 - The deflate, inflate, and crc engine is zlib-ng, with SIMD in the block boundary scanner as well.
-- The core is a library. The block reader and writer in `gzng::gzblock` work over any `Read` and `Write`, and the command line is one caller of them.
+- The core is a library. The block reader and writer in `gzng::gzblock` work over any `Read` and `Write`, are a `BufRead` and a `Write` themselves, and the command line is one caller of them.
 - Not carried over from pigz: zopfli's `-11`, zlib and zip output formats, and `--suffix`.
 
 ## How it works

@@ -1,7 +1,7 @@
 // reader.rs -- the parallel reader for gzip members made of independent deflate blocks
 // For conditions of distribution and use, see LICENSE.md
 
-use std::io::{self, Read};
+use std::io::{self, BufRead, Read};
 
 use crate::IO_CHUNK;
 use crate::buf::{Buf, read_some};
@@ -39,7 +39,8 @@ struct Members {
 /// Decodes gzip data, member by member. A member found to be cut into independent blocks is
 /// inflated as blocks on nthreads threads at once. Other members, and every member when nthreads
 /// is 1, are streamed through plain inflate. Input that is not gzip at all is passed through
-/// unchanged and trailing garbage after the last member is ignored.
+/// unchanged and trailing garbage after the last member is ignored. The output comes out through
+/// Read, or through BufRead a piece at a time with no copy.
 pub struct Reader<R: Read> {
     read: R,
     /// Input in hand, not yet consumed.
@@ -603,6 +604,7 @@ impl<R: Read> Reader<R> {
         }
         while self.have == 0 {
             // Output handed out earlier has been consumed, its slot can go back to the pool.
+            self.next = 0;
             if let Some((index, slot)) = self.slot.take() {
                 self.pipeline().pool.release(index, slot);
             }
@@ -618,41 +620,32 @@ impl<R: Read> Reader<R> {
         }
         Ok(())
     }
+}
 
-    /// Read until buf is full or the data ends. Returns the bytes read.
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let mut done = 0;
+/// An error from the block engine comes back as the io error's payload.
+impl<R: Read> Read for Reader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let piece = self.fill_buf()?;
+        let n = piece.len().min(buf.len());
 
-        while done < buf.len() {
-            self.advance()?;
-            if self.have == 0 {
-                break; // end of the data
-            }
-            let n = self.have.min(buf.len() - done);
-            buf[done..done + n].copy_from_slice(&self.pending()[..n]);
-            done += n;
-            self.next += n;
-            self.have -= n;
-        }
-        Ok(done)
+        buf[..n].copy_from_slice(&piece[..n]);
+        self.consume(n);
+        Ok(n)
+    }
+}
+
+impl<R: Read> BufRead for Reader<R> {
+    /// The next piece of output, a block or a buffer of plain inflate, owned by the reader. It is
+    /// empty at the end of the data.
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        self.advance()?;
+        Ok(self.pending())
     }
 
-    /// Hand out the next piece of output without copying, bytes owned by the reader and valid
-    /// until the next call. The piece is empty at the end of the data.
-    #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Result<&[u8]> {
-        self.advance()?;
-        if self.have == 0 {
-            return Ok(&[]); // end of the data
-        }
-        let (next, have) = (self.next, self.have);
-        // Consumed as far as the reader is concerned, the slot goes back on the next call.
-        self.next += have;
-        self.have = 0;
-        let out = match &self.slot {
-            Some((_, slot)) => &slot.out,
-            None => &self.out_buf,
-        };
-        Ok(&out[next..next + have])
+    fn consume(&mut self, amount: usize) {
+        let amount = amount.min(self.have);
+
+        self.next += amount;
+        self.have -= amount;
     }
 }

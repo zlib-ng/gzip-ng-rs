@@ -3,6 +3,8 @@
 
 mod common;
 
+use std::io::Write;
+
 use common::{block_compress, block_params, block_read, sample_data, varied_data, whole_inflate};
 use gzng::format::{self, Parse};
 use gzng::gzblock::{Code, Writer};
@@ -37,10 +39,10 @@ fn flush_and_params_inside_a_block() {
     let data = sample_data(300_000);
     let mut out = Vec::new();
     let mut w = Writer::new(&mut out, &block_params(DEFAULT_COMPRESSION, 64 * 1024, 2)).unwrap();
-    w.write(&data[..100_000]).unwrap();
+    w.write_all(&data[..100_000]).unwrap();
     w.flush().unwrap();
     w.set_params(1, Strategy::Default).unwrap();
-    w.write(&data[100_000..]).unwrap();
+    w.write_all(&data[100_000..]).unwrap();
     w.finish().unwrap();
     drop(w);
     assert_eq!(data, whole_inflate(&out, data.len()));
@@ -56,7 +58,7 @@ fn meta_lands_in_the_header() {
         ..block_params(6, 64 * 1024, 1)
     };
     let mut w = Writer::new(&mut out, &params).unwrap();
-    w.write(&data).unwrap();
+    w.write_all(&data).unwrap();
     w.finish().unwrap();
     drop(w);
     assert!(out.len() > 31);
@@ -71,11 +73,12 @@ fn a_finished_member_takes_no_more() {
     let data = varied_data(300_000);
     let mut out = Vec::new();
     let mut w = Writer::new(&mut out, &block_params(6, 64 * 1024, 1)).unwrap();
-    w.write(&data).unwrap();
+    w.write_all(&data).unwrap();
     w.flush().unwrap();
     w.finish().unwrap();
-    assert!(w.write(&data).is_err(), "the member is finished");
+    assert!(w.write_all(&data).is_err(), "the member is finished");
     w.finish().unwrap();
+    w.flush().unwrap();
     drop(w);
     assert_eq!(data, whole_inflate(&out, data.len()));
 }
@@ -99,9 +102,9 @@ fn a_bad_level_is_refused() {
     let data = sample_data(200_000);
     let mut out = Vec::new();
     let mut w = Writer::new(&mut out, &block_params(6, 64 * 1024, 2)).unwrap();
-    w.write(&data[..100_000]).unwrap();
+    w.write_all(&data[..100_000]).unwrap();
     assert_eq!(Code::Stream, w.set_params(42, Strategy::Default).unwrap_err().code());
-    w.write(&data[100_000..]).unwrap();
+    w.write_all(&data[100_000..]).unwrap();
     w.finish().unwrap();
     drop(w);
     assert_eq!(data, whole_inflate(&out, data.len()));
@@ -114,7 +117,7 @@ fn rsync_compress(data: &[u8]) -> Vec<u8> {
     };
     let mut out = Vec::new();
     let mut w = Writer::new(&mut out, &params).unwrap();
-    w.write(data).unwrap();
+    w.write_all(data).unwrap();
     w.finish().unwrap();
     drop(w);
     out
