@@ -5,33 +5,35 @@ use std::sync::LazyLock;
 
 use memchr::memmem::Finder;
 
+/// What a flush leaves, the length of an empty stored block and its complement.
+const MARKER: [u8; 4] = [0, 0, 0xff, 0xff];
+/// A marker with an empty stored block right behind it.
+const PAIR: [u8; 9] = [0, 0, 0xff, 0xff, 0, 0, 0, 0xff, 0xff];
+
 // The searchers are built once and shared by every scan.
-static MARKER: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new(&[0, 0, 0xff, 0xff]));
-static MARKER_PAIR: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new(&[0, 0, 0xff, 0xff, 0, 0, 0, 0xff, 0xff]));
+static FIND_MARKER: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new(&MARKER));
+static FIND_PAIR: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new(&PAIR));
 
 /// The empty stored block that continues a marker, 5 more bytes of 00 00 00 FF FF.
 pub fn scan_empty_block(p: &[u8]) -> bool {
-    p.starts_with(&[0, 0, 0, 0xff, 0xff])
+    p.starts_with(&PAIR[4..])
 }
 
 /// The first 00 00 FF FF at or after start, end bounding the last start position considered, or
 /// None. end + 3 must be within buf.
 pub fn scan_marker(buf: &[u8], start: usize, end: usize) -> Option<usize> {
-    MARKER.find(&buf[start..end + 3]).map(|at| start + at)
+    FIND_MARKER.find(&buf[start..end + 3]).map(|at| start + at)
 }
 
 /// The first marker with an empty stored block right behind it, at or after start, end bounding
 /// the last start position considered, or None. end + 8 must be within buf.
 pub fn scan_marker_pair(buf: &[u8], start: usize, end: usize) -> Option<usize> {
-    MARKER_PAIR.find(&buf[start..end + 8]).map(|at| start + at)
+    FIND_PAIR.find(&buf[start..end + 8]).map(|at| start + at)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const MARKER: [u8; 4] = [0, 0, 0xff, 0xff];
-    const PAIR: [u8; 9] = [0, 0, 0xff, 0xff, 0, 0, 0, 0xff, 0xff];
 
     /// Bytes with zeros sprinkled in, so the filter has candidates to turn down.
     fn noise(len: usize) -> Vec<u8> {
