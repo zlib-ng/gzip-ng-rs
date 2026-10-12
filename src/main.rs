@@ -85,6 +85,21 @@ fn report(opt: &Options, name: impl Display, outname: Option<&Path>, totals: Tot
     }
 }
 
+/// How a run that leaves its input in place went, under the name it is reported by. Returns Ok,
+/// or Error with the error reported.
+fn conclude(opt: &Options, name: impl Display, result: io::Result<Totals>) -> Status {
+    match result {
+        Ok(totals) => {
+            report(opt, name, None, totals);
+            Status::Ok
+        }
+        Err(err) => {
+            fail(name, &err);
+            Status::Error
+        }
+    }
+}
+
 // ===========================================================================
 // File names
 
@@ -270,16 +285,7 @@ fn process_stdio(opt: &Options) -> Status {
     } else {
         stdout_file().and_then(|stdout| run_stream(stdin, stdout, opt, 0, None))
     };
-    match result {
-        Ok(totals) => {
-            report(opt, "stdin", None, totals);
-            Status::Ok
-        }
-        Err(err) => {
-            fail("stdin", &err);
-            Status::Error
-        }
-    }
+    conclude(opt, "stdin", result)
 }
 
 // ===========================================================================
@@ -472,39 +478,69 @@ fn process_to_stdout(
     if tty_guard(opt) != Status::Ok {
         return Status::Error;
     }
-    match stdout_file().and_then(|stdout| run_stream(input, stdout, opt, store_mtime, store_name)) {
-        Ok(totals) => {
-            report(opt, in_path.display(), None, totals);
-            Status::Ok
+    let result = stdout_file().and_then(|stdout| run_stream(input, stdout, opt, store_mtime, store_name));
+    conclude(opt, in_path.display(), result)
+}
+
+/// The time and name a new header records, subject to --no-name, --name, --no-time, and --time.
+fn header_fields<'a>(in_path: &'a Path, ist: &Metadata, opt: &Options) -> (u32, Option<&'a [u8]>) {
+    let mut mtime = 0;
+    let mut name = None;
+
+    if opt.name_mode != Some(false) {
+        name = in_path.file_name().map(OsStr::as_encoded_bytes);
+    }
+    if opt.time_mode != Some(false) {
+        let modified = ist
+            .modified()
+            .ok()
+            .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok());
+        mtime = modified.map_or(0, |since| since.as_secs() as u32);
+    }
+    (mtime, name)
+}
+
+/// Create the output, which has to be new without --force. An Err is the status to give up with,
+/// the reason already reported.
+fn create_output(out_path: &Path, opt: &Options) -> Result<File, Status> {
+    let mut create = OpenOptions::new();
+
+    create.write(true);
+    if opt.force {
+        create.create(true).truncate(true);
+    } else {
+        create.create_new(true);
+    }
+    match create.open(out_path) {
+        Ok(out) => Ok(out),
+        Err(err) if !opt.force && err.kind() == io::ErrorKind::AlreadyExists => {
+            let out_path = out_path.display();
+            warn(
+                opt,
+                format_args!("gzip-ng: {out_path} already exists, not overwritten, use -f"),
+            );
+            Err(Status::Warning)
         }
         Err(err) => {
-            fail(in_path.display(), &err);
-            Status::Error
+            fail(out_path.display(), &err);
+            Err(Status::Error)
         }
     }
 }
 
 /// Process input, named in_path, into the file named by out_path, which --name may change.
 fn process_file(mut input: File, in_path: &Path, mut out_path: PathBuf, ist: &Metadata, opt: &Options) -> Status {
-    let mut mtime = 0; // to write when compressing, read when decompressing
-    let mut name = None; // to write when compressing
+    // What a new header records, when compressing.
+    let (store_mtime, store_name) = if opt.decompress {
+        (0, None)
+    } else {
+        header_fields(in_path, ist, opt)
+    };
+    // The stored time to put on the output, when decompressing asks for it.
+    let mut restore_mtime = 0;
 
-    // The name and time to record in the header, subject to --no-name, --name, --no-time, and
-    // --time.
-    if !opt.decompress {
-        if opt.name_mode != Some(false) {
-            name = in_path.file_name().map(OsStr::as_encoded_bytes);
-        }
-        if opt.time_mode != Some(false) {
-            let modified = ist
-                .modified()
-                .ok()
-                .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok());
-            mtime = modified.map_or(0, |since| since.as_secs() as u32);
-        }
-    }
     if opt.stdout_mode {
-        return process_to_stdout(input, opt, in_path, mtime, name);
+        return process_to_stdout(input, opt, in_path, store_mtime, store_name);
     }
     // With --name the stored name decides the output path, and --name or --time whether the
     // stored time applies.
@@ -518,50 +554,34 @@ fn process_file(mut input: File, in_path: &Path, mut out_path: PathBuf, ist: &Me
         {
             out_path = path;
         }
-        mtime = if opt.time_mode == Some(true) { stored_mtime } else { 0 };
+        if opt.time_mode == Some(true) {
+            restore_mtime = stored_mtime;
+        }
     }
-
-    let mut create = OpenOptions::new();
-    create.write(true);
-    if opt.force {
-        create.create(true).truncate(true);
-    } else {
-        create.create_new(true);
-    }
-    let mut out = match create.open(&out_path) {
+    let mut out = match create_output(&out_path, opt) {
         Ok(out) => out,
-        Err(err) if !opt.force && err.kind() == io::ErrorKind::AlreadyExists => {
-            let out_path = out_path.display();
-            warn(
-                opt,
-                format_args!("gzip-ng: {out_path} already exists, not overwritten, use -f"),
-            );
-            return Status::Warning;
-        }
-        Err(err) => {
-            fail(out_path.display(), &err);
-            return Status::Error;
-        }
+        Err(status) => return status,
     };
-    let totals = match run_stream(input, &mut out, opt, mtime, name) {
+    // --synchronous flushes the output before the input is unlinked. A failure names the file it
+    // happened on.
+    let written = run_stream(input, &mut out, opt, store_mtime, store_name)
+        .map_err(|err| (in_path, err))
+        .and_then(|totals| {
+            if opt.synchronous {
+                out.sync_all().map_err(|err| (out_path.as_path(), err))?;
+            }
+            Ok(totals)
+        });
+    let totals = match written {
         Ok(totals) => totals,
-        Err(err) => {
-            fail(in_path.display(), &err);
+        Err((path, err)) => {
+            fail(path.display(), &err);
             drop(out);
             let _ = fs::remove_file(&out_path);
             return Status::Error;
         }
     };
-    // --synchronous flushes the output before the input is unlinked.
-    if opt.synchronous
-        && let Err(err) = out.sync_all()
-    {
-        fail(out_path.display(), &err);
-        drop(out);
-        let _ = fs::remove_file(&out_path);
-        return Status::Error;
-    }
-    copy_attrs(&out, ist, if opt.decompress { mtime } else { 0 });
+    copy_attrs(&out, ist, restore_mtime);
     drop(out);
     if opt.synchronous {
         sync_dir(&out_path);
