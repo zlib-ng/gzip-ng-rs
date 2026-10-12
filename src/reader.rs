@@ -23,7 +23,6 @@ enum State {
     Members,
     MemberEnd,
     End,
-    Error,
 }
 
 /// Sized members, BGZF, cut whole and decoded in parallel with headers and trailers included.
@@ -134,7 +133,6 @@ impl<R: Read> Reader<R> {
         let msg = msg.into();
 
         self.failed = Some((code, msg.clone()));
-        self.state = State::Error;
         Err(match source {
             Some(source) => Error::with_source(code, msg, source),
             None => Error::new(code, msg),
@@ -597,8 +595,12 @@ impl<R: Read> Reader<R> {
     // ===========================================================================
     // The reader object
 
-    /// Advance until there is output to hand out or the data ends, which leaves have at 0.
+    /// Advance until there is output to hand out or the data ends, which leaves have at 0. Once
+    /// failed, every call fails the same way.
     fn advance(&mut self) -> Result<()> {
+        if let Some((code, msg)) = &self.failed {
+            return Err(Error::new(*code, msg.clone()));
+        }
         while self.have == 0 {
             // Output handed out earlier has been consumed, its slot can go back to the pool.
             if let Some((index, slot)) = self.slot.take() {
@@ -612,10 +614,6 @@ impl<R: Read> Reader<R> {
                 State::Members => self.members_step()?,
                 State::MemberEnd => self.member_end_step()?,
                 State::End => return Ok(()),
-                State::Error => {
-                    let (code, msg) = self.failed.clone().unwrap_or((Code::Stream, String::new()));
-                    return Err(Error::new(code, msg));
-                }
             }
         }
         Ok(())
