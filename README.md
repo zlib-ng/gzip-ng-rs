@@ -27,9 +27,8 @@ The command lands in `target/release/gzip-ng`. zlib-ng is a submodule pinned to 
 | Feature   | Description                                     | Default |
 |:----------|:------------------------------------------------|---------|
 | `threads` | Compress and decompress blocks on a thread pool | on      |
-| `simd`    | Scan for block boundaries with NEON or SSE2     | on      |
 
-Both are on by default, `cargo build --no-default-features --features simd` builds without threads.
+`cargo build --no-default-features` builds without threads.
 
 ## Usage
 

@@ -1,14 +1,11 @@
 // scanner.rs -- marker scanner throughput
 // For conditions of distribution and use, see LICENSE.md
 
-// The production scan against the scalar memchr loop it replaces. The haystack is real block
-// writer output, so zero density and marker spacing match what the reader scans, and each
+// The production scan against a loop that filters on the zero byte alone. The haystack is real
+// block writer output, so zero density and marker spacing match what the reader scans, and each
 // checks its hit count against the other's so a faster scan that misses markers cannot hide.
 //
-// Unrolling the vector scan loses, because the filter branch was never the cost. Compressed
-// bytes hold about one zero per 256, so the branch is predicted not taken about 94 percent of
-// the time, while a combined minimum adds work to every iteration and doubles or quadruples the
-// chance of paying for the slow path.
+// Compressed bytes hold about one zero per 256, so the loop stops for a candidate that often.
 
 use std::hint::black_box;
 use std::sync::LazyLock;
@@ -34,7 +31,7 @@ static HAYSTACK: LazyLock<Vec<u8>> = LazyLock::new(|| {
     out
 });
 
-/// The scalar loop the vector scan falls back to, memchr for the zero and a byte check.
+/// A scan that filters on one byte, memchr for the zero and a byte check.
 fn scan_scalar(buf: &[u8], mut start: usize, end: usize) -> Option<usize> {
     while start < end {
         start += memchr::memchr(0, &buf[start..end])?;

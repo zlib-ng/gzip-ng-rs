@@ -14,11 +14,9 @@ links = "z-ng"
 name = "gzng"
 
 [features]
-default = ["threads", "simd"]
+default = ["threads"]
 # Compress and decompress blocks on a thread pool.
 threads = []
-# Scan for block boundaries with NEON or SSE2.
-simd = []
 
 [dependencies]
 libc = "0.2"
