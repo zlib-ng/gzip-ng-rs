@@ -8,12 +8,11 @@ use crate::format;
 use crate::gzblock::Writer;
 use crate::rolling;
 use crate::zng::{Deflater, MAX_WBITS, Strategy, Z_BUF_ERROR, Z_FINISH, Z_NO_FLUSH, Z_OK, Z_STREAM_END, Z_SYNC_FLUSH};
-use crate::{DEFAULT_LEVEL, Totals};
+use crate::{DEFAULT_LEVEL, IO_CHUNK, Totals};
 
 /// What a block holds on average when nothing says otherwise.
 pub const DEFAULT_BLOCK: u32 = 128 << 10;
 
-const CHUNK: usize = 256 * 1024;
 const WRITE_BUFFER: usize = 64 * 1024;
 
 /// How compress_stream() makes its one gzip member.
@@ -69,7 +68,7 @@ impl<W: Write> Write for CountWrite<W> {
 fn block_compress_stream<R: Read, W: Write>(mut input: R, out: W, params: &Compress) -> io::Result<Totals> {
     let out = CountWrite { out, total: 0 };
     let mut writer = Writer::new(out, params.level, params.strategy, params.block_size, params.threads)?;
-    let mut buf = vec![0; CHUNK];
+    let mut buf = vec![0; IO_CHUNK];
     let mut total_in = 0;
 
     if params.mtime != 0 || params.name.is_some() {
@@ -138,8 +137,8 @@ pub fn compress_stream<R: Read, W: Write>(mut input: R, out: W, params: &Compres
     let mut out = BufWriter::with_capacity(WRITE_BUFFER, out);
     let mut strm = Deflater::new(params.level, MAX_WBITS + 16, params.strategy)
         .ok_or_else(|| io::Error::other("deflate failed"))?;
-    let mut in_buf = vec![0; CHUNK];
-    let mut out_buf = vec![0; CHUNK];
+    let mut in_buf = vec![0; IO_CHUNK];
+    let mut out_buf = vec![0; IO_CHUNK];
     let mut rsync_hash = 0;
     let rsync_mask = rolling::mask(RSYNC_SPAN);
     let mut totals = Totals::default();
@@ -149,7 +148,7 @@ pub fn compress_stream<R: Read, W: Write>(mut input: R, out: W, params: &Compres
     strm.set_header(params.mtime, params.name, format::OS_CODE);
     loop {
         let have = read_full(&mut input, &mut in_buf)?;
-        let last = have < CHUNK;
+        let last = have < IO_CHUNK;
         let mut pos = 0;
 
         // An empty read still runs once, which is what emits Z_FINISH.
