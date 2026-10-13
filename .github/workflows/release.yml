@@ -52,58 +52,48 @@ jobs:
           - name: Ubuntu x86_64
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            arch: linux-x86_64
 
           - name: Ubuntu ARM64
             os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-            arch: linux-arm64
 
           # The rest of Ubuntu's architectures, cross compiled and run under QEMU.
           - name: Ubuntu ARMv7
             os: ubuntu-22.04
             target: armv7-unknown-linux-gnueabihf
             gnu: arm-linux-gnueabihf
-            arch: linux-armv7
 
           - name: Ubuntu PPC64LE
             os: ubuntu-22.04
             target: powerpc64le-unknown-linux-gnu
             gnu: powerpc64le-linux-gnu
-            arch: linux-ppc64le
 
           - name: Ubuntu RISC-V 64
             os: ubuntu-22.04
             target: riscv64gc-unknown-linux-gnu
             gnu: riscv64-linux-gnu
-            arch: linux-riscv64
 
           - name: Ubuntu S390X
             os: ubuntu-22.04
             target: s390x-unknown-linux-gnu
             gnu: s390x-linux-gnu
-            arch: linux-s390x
 
           - name: macOS ARM64
             os: macos-latest
             target: aarch64-apple-darwin
-            arch: macos-arm64
 
           - name: macOS x86_64
             os: macos-latest
             target: x86_64-apple-darwin
-            arch: macos-x86_64
             skip-tests: true
 
           - name: Windows MSVC x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            arch: windows-x64
 
           - name: Windows MSVC x86
             os: windows-latest
             target: i686-pc-windows-msvc
-            arch: windows-x86
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -140,7 +130,7 @@ jobs:
       - name: Package
         if: runner.os != 'Windows'
         run: |
-          dir=gzip-ng-rs-${{ inputs.version }}-${{ matrix.arch }}
+          dir=gzip-ng-rs-${{ inputs.version }}-${{ matrix.target }}
           mkdir -p pkg/$dir
           cp target/${{ matrix.target }}/release/gzip-ng LICENSE.md README.md pkg/$dir/
           if [ "$RUNNER_OS" = "Linux" ]; then
@@ -151,7 +141,7 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
-          $dir = "gzip-ng-rs-${{ inputs.version }}-${{ matrix.arch }}"
+          $dir = "gzip-ng-rs-${{ inputs.version }}-${{ matrix.target }}"
           New-Item -ItemType Directory -Path pkg/$dir | Out-Null
           Copy-Item target/${{ matrix.target }}/release/gzip-ng.exe, LICENSE.md, README.md pkg/$dir/
           Compress-Archive -Path pkg/$dir -DestinationPath "$dir.zip"
@@ -159,7 +149,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.arch }}
+          name: ${{ matrix.target }}
           path: |
             *.tar.gz
             *.zip
