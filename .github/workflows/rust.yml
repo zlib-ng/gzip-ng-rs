@@ -80,7 +80,7 @@ jobs:
       TSAN_OPTIONS: abort_on_error=1:halt_on_error=1
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install toolchain
         if: matrix.toolchain
