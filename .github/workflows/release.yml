@@ -59,6 +59,31 @@ jobs:
             target: aarch64-unknown-linux-gnu
             arch: linux-arm64
 
+          # The rest of Ubuntu's architectures, cross compiled and run under QEMU.
+          - name: Ubuntu ARMv7
+            os: ubuntu-22.04
+            target: armv7-unknown-linux-gnueabihf
+            gnu: arm-linux-gnueabihf
+            arch: linux-armv7
+
+          - name: Ubuntu PPC64LE
+            os: ubuntu-22.04
+            target: powerpc64le-unknown-linux-gnu
+            gnu: powerpc64le-linux-gnu
+            arch: linux-ppc64le
+
+          - name: Ubuntu RISC-V 64
+            os: ubuntu-22.04
+            target: riscv64gc-unknown-linux-gnu
+            gnu: riscv64-linux-gnu
+            arch: linux-riscv64
+
+          - name: Ubuntu S390X
+            os: ubuntu-22.04
+            target: s390x-unknown-linux-gnu
+            gnu: s390x-linux-gnu
+            arch: linux-s390x
+
           - name: macOS ARM64
             os: macos-latest
             target: aarch64-apple-darwin
@@ -90,6 +115,20 @@ jobs:
       - name: Install target
         run: rustup target add ${{ matrix.target }}
 
+      # The cross compiler brings the target's C library, and binfmt hands what gets built to QEMU.
+      - name: Install cross toolchain
+        if: matrix.gnu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-${{ matrix.gnu }} qemu-user-static binfmt-support
+          target=${{ matrix.target }}
+          target=${target//-/_}
+          {
+            echo "CC_${target}=${{ matrix.gnu }}-gcc"
+            echo "CARGO_TARGET_${target^^}_LINKER=${{ matrix.gnu }}-gcc"
+            echo "QEMU_LD_PREFIX=/usr/${{ matrix.gnu }}"
+          } >> "$GITHUB_ENV"
+
       - name: Build project
         run: cargo build --release --locked --target ${{ matrix.target }}
 
@@ -105,7 +144,7 @@ jobs:
           mkdir -p pkg/$dir
           cp target/${{ matrix.target }}/release/gzip-ng LICENSE.md README.md pkg/$dir/
           if [ "$RUNNER_OS" = "Linux" ]; then
-            strip pkg/$dir/gzip-ng
+            ${{ matrix.gnu && format('{0}-', matrix.gnu) || '' }}strip pkg/$dir/gzip-ng
           fi
           tar -czf $dir.tar.gz -C pkg $dir
 
