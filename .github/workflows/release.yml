@@ -68,8 +68,9 @@ jobs:
             target: powerpc64le-unknown-linux-gnu
             gnu: powerpc64le-linux-gnu
 
+          # zlib-ng 2.3.3 needs RVV intrinsics to build for RISC-V, and GCC 11 on 22.04 has none.
           - name: Ubuntu RISC-V 64
-            os: ubuntu-22.04
+            os: ubuntu-24.04
             target: riscv64gc-unknown-linux-gnu
             gnu: riscv64-linux-gnu
 
