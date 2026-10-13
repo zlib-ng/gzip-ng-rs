@@ -149,3 +149,21 @@ jobs:
           --target ${{ needs.check.outputs.sha }}
           --title "gzip-ng-rs ${{ inputs.version }}"
           --generate-notes
+
+  # A published crate cannot be taken back, so it goes last, after everything else held.
+  crate:
+    name: Publish crate
+    needs: [check, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+
+      - name: Publish crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
