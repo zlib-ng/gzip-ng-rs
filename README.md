@@ -12,6 +12,14 @@ This is [gzip-ng](https://github.com/nmoinvaz/gzip-ng) in Rust. The command is s
 - Compression serial by default, parallel independent blocks whenever threads or a block size are used.
 - zlib license.
 
+## Install
+
+```
+cargo install --locked gzip-ng-rs
+```
+
+This builds zlib-ng from source and needs CMake and a C compiler. Prebuilt binaries are on the [releases](https://github.com/zlib-ng/gzip-ng-rs/releases) page.
+
 ## Build
 
 ```
