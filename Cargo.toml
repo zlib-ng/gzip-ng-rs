@@ -11,6 +11,15 @@ keywords = ["gzip", "zlib-ng", "deflate", "compression", "parallel"]
 categories = ["compression", "command-line-utilities"]
 exclude = ["/.github"]
 
+# Where cargo-binstall finds the release archive for a target.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ version }/gzip-ng-rs-{ version }-{ target }{ archive-suffix }"
+bin-dir = "gzip-ng-rs-{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.'cfg(target_os = "windows")']
+pkg-fmt = "zip"
+
 [lib]
 name = "gzng"
 
