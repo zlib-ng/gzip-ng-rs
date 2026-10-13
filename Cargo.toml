@@ -1,6 +1,6 @@
 [package]
 name = "gzip-ng-rs"
-version = "2.0.1"
+version = "2.0.2"
 edition = "2024"
 rust-version = "1.88"
 description = "Parallel gzip replacement built on zlib-ng"
