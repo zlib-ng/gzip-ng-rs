@@ -231,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "gzip-ng"
-version = "2.0.2"
+version = "2.0.3"
 dependencies = [
  "criterion",
  "libc",
