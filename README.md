@@ -115,12 +115,12 @@ Comparing whole binaries is a different job, fork and exec noise belongs to tool
 
 ### Results
 
-Whole-tool comparisons live in [gzipbench](https://github.com/nmoinvaz/gzipbench),
+Whole-tool comparisons live in [gzipbench](https://github.com/zlib-ng/gzipbench),
 which runs the full matrix, level ladders 1 through 9, thread sweeps, the
 cross-decode grid, and a deflate block census, all against tools built on
 zlib-ng develop, and graphs each run. The graph is of the C gzip-ng:
 
-![All tools, compress and decompress](https://raw.githubusercontent.com/nmoinvaz/gzipbench/main/results/all-tools.svg)
+![All tools, compress and decompress](https://raw.githubusercontent.com/zlib-ng/gzipbench/main/results/all-tools.svg)
 
 ## Thanks
 
