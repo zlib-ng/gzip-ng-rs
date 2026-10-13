@@ -15,7 +15,7 @@ This is [gzip-ng](https://github.com/nmoinvaz/gzip-ng) in Rust. The command is s
 ## Install
 
 ```
-cargo install --locked gzip-ng-rs
+cargo install --locked gzip-ng
 ```
 
 This builds zlib-ng from source and needs CMake and a C compiler. Prebuilt binaries are on the [releases](https://github.com/zlib-ng/gzip-ng-rs/releases) page.
