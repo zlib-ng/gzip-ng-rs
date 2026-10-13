@@ -9,6 +9,7 @@ repository = "https://github.com/zlib-ng/gzip-ng-rs"
 readme = "README.md"
 keywords = ["gzip", "zlib-ng", "deflate", "compression", "parallel"]
 categories = ["compression", "command-line-utilities"]
+exclude = ["/.github"]
 
 [lib]
 name = "gzng"
