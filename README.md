@@ -20,6 +20,8 @@ cargo install --locked gzip-ng
 
 This builds zlib-ng from source and needs CMake and a C compiler. Prebuilt binaries are on the [releases](https://github.com/zlib-ng/gzip-ng-rs/releases) page.
 
+On Windows with the MSVC toolchain, `cargo install` builds zlib-ng without optimization, so it compresses two to three times slower, see [rust-lang/cmake-rs#240](https://github.com/rust-lang/cmake-rs/issues/240). The Windows release binaries through 2.0.3 have the same problem. Later releases and builds from a checkout put the optimization back.
+
 ## Build
 
 ```
