@@ -237,7 +237,7 @@ checksum = "616e8f476a586f1b078d9eece21f7a071f27997e709e2b471f5697deea53bda9"
 
 [[package]]
 name = "gzip-ng"
-version = "2.0.3"
+version = "2.0.4"
 dependencies = [
  "criterion",
  "gearhash",
