@@ -34,6 +34,7 @@ default = ["threads"]
 threads = []
 
 [dependencies]
+gearhash = "0.1.4"
 libc = "0.2"
 libz-ng-sys = "1.1.30"
 memchr = "2"

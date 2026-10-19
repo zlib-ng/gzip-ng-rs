@@ -39,6 +39,18 @@ pub const GEAR: [u32; 256] = [
     0x8027b30d, 0x7c80d6be, 0x285d676d, 0xd4a6fbbb, 0x6b7252f5, 0x76e7c3b3, 0xbeef68cb, 0x9ddbcc9a,
 ];
 
+/// GEAR widened for gearhash. Carries only move upward, so the low 32 bits of its hash are ours
+/// and any mask under 32 bits cuts at the same bytes.
+static GEAR64: gearhash::Table = {
+    let mut t = [0u64; 256];
+    let mut i = 0;
+    while i < 256 {
+        t[i] = GEAR[i] as u64;
+        i += 1;
+    }
+    t
+};
+
 /// Closest and furthest apart boundaries are ever asked to fall. Below the minimum a sync point
 /// costs more than the sharing it buys, which is the spacing gzip and pigz settled on for
 /// rsyncable output, and the maximum is where a 32 bit mask runs out of usable bits.
@@ -49,11 +61,13 @@ pub const MAX_SPAN: usize = 16 << 20;
 /// byte across the word, landing boundaries far closer to their intended spacing than a plain
 /// shift and exclusive or, and old bytes age out of the top so no window is tracked. A mask of
 /// 2^n - 1 asks for a boundary every 2^n bytes on average.
+#[cfg(test)]
 #[inline(always)]
 fn add(hash: u32, byte: u8) -> u32 {
     (hash << 1).wrapping_add(GEAR[byte as usize])
 }
 
+#[cfg(test)]
 #[inline(always)]
 fn hit(hash: u32, mask: u32) -> bool {
     hash & mask == 0
@@ -71,80 +85,23 @@ pub fn mask(span: usize) -> u32 {
     (1u32 << bits) - 1
 }
 
-// The hash runs as four chains at once. A 32 bit Gear hash is the sum of the table entries for
-// the last 32 bytes, each shifted by its distance, so a position's hash depends on the 32 bytes
-// before it and nothing earlier. One chain is bound by its own latency, so a tile of input is
-// hashed as four stretches in lockstep, each after the first warmed up on the 32 bytes before
-// it. Tiles keep the work close to what one chain stopping at the first hit does.
-const LANES: usize = 4;
-const STRETCH: usize = 1024;
-
 /// The first position in [first, buf.len()) whose hash hits mask, or buf.len() when none does.
 /// hash carries the chain in and comes out as the hash at the position returned, or at the last
 /// byte hashed. Since the hash forgets a byte after 32 shifts, hashing starts 31 bytes before
 /// first, and the chain carried in matters only when first is closer to the start than that.
 pub fn find(hash: &mut u32, mask: u32, buf: &[u8], first: usize) -> usize {
-    let len = buf.len();
-    let mut k = first.saturating_sub(31);
-    let mut chain = *hash;
+    let warm = first.saturating_sub(31).min(buf.len());
+    let first = first.min(buf.len());
+    let mut h = gearhash::Hasher::new(&GEAR64);
 
-    if k >= len {
-        return len;
-    }
-    while k < first && k < len {
-        chain = add(chain, buf[k]);
-        k += 1;
-    }
-    while len - k >= LANES * STRETCH {
-        let tile = &buf[k..k + LANES * STRETCH];
-        let mut h = [0u32; LANES];
-        let mut at = [STRETCH; LANES];
-        let mut at_hash = [0u32; LANES];
-
-        h[0] = chain;
-        for i in 1..LANES {
-            for &byte in &tile[i * STRETCH - 32..i * STRETCH] {
-                h[i] = add(h[i], byte);
-            }
-        }
-        let (l0, rest) = tile.split_at(STRETCH);
-        let (l1, rest) = rest.split_at(STRETCH);
-        let (l2, l3) = rest.split_at(STRETCH);
-        for j in 0..STRETCH {
-            h[0] = add(h[0], l0[j]);
-            h[1] = add(h[1], l1[j]);
-            h[2] = add(h[2], l2[j]);
-            h[3] = add(h[3], l3[j]);
-            // One rare branch for all four, so the loop stays at the hash and its loads.
-            if hit(h[0], mask) || hit(h[1], mask) || hit(h[2], mask) || hit(h[3], mask) {
-                for i in 0..LANES {
-                    if hit(h[i], mask) && at[i] == STRETCH {
-                        at[i] = j;
-                        at_hash[i] = h[i];
-                    }
-                }
-            }
-        }
-        // The earliest stretch with a hit holds the earliest hit.
-        for i in 0..LANES {
-            if at[i] != STRETCH {
-                *hash = at_hash[i];
-                return k + i * STRETCH + at[i];
-            }
-        }
-        chain = h[LANES - 1];
-        k += LANES * STRETCH;
-    }
-    while k < len {
-        chain = add(chain, buf[k]);
-        if hit(chain, mask) {
-            *hash = chain;
-            return k;
-        }
-        k += 1;
-    }
-    *hash = chain;
-    len
+    h.set_hash(*hash as u64);
+    h.update(&buf[warm..first]);
+    let at = match h.next_match(&buf[first..], mask as u64) {
+        Some(n) => first + n - 1,
+        None => buf.len(),
+    };
+    *hash = h.get_hash() as u32;
+    at
 }
 
 #[cfg(test)]
