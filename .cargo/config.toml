@@ -1,0 +1,8 @@
+# MSVC builds of zlib-ng go through cmake/msvc-optimize.cmake, which puts back the optimization
+# cmake-rs strips, https://github.com/rust-lang/cmake-rs/issues/240. Named per target, since a
+# plain CMAKE_TOOLCHAIN_FILE also turns off cmake-rs's cross compiling setup for every other target.
+# Cargo does not rerun zlib-ng's build when these change, cargo clean -p libz-ng-sys picks them up.
+[env]
+CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc = { value = "cmake/msvc-optimize.cmake", relative = true }
+CMAKE_TOOLCHAIN_FILE_i686_pc_windows_msvc = { value = "cmake/msvc-optimize.cmake", relative = true }
+CMAKE_TOOLCHAIN_FILE_aarch64_pc_windows_msvc = { value = "cmake/msvc-optimize.cmake", relative = true }
