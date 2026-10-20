@@ -97,7 +97,7 @@ jobs:
         if: matrix.gnu
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-${{ matrix.gnu }} qemu-user-static binfmt-support
+          sudo apt-get install -y gcc-${{ matrix.gnu }} qemu-user-binfmt
           target=${{ matrix.target }}
           target=${target//-/_}
           {
