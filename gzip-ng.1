@@ -137,6 +137,13 @@ meant for the small values a filter or predictor produces.
 .B \-\-fixed
 Use the fixed codes strategy, which never builds Huffman codes of its own.
 .TP
+.B \-\-zopfli
+Compress with zopfli in place of zlib-ng, smaller than
+.B \-9
+and many times slower.
+The level has no effect, and the input is always cut into blocks, as with
+.BR \-\-blocksize .
+.TP
 .B \-T
 Copy the input to the output unchanged, without compressing it.
 .TP

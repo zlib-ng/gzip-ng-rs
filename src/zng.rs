@@ -16,7 +16,8 @@ pub const MAX_WBITS: i32 = 15;
 
 const MEM_LEVEL: i32 = 8;
 
-/// Deflate strategies, with zlib's own values.
+/// Deflate strategies, with zlib's own values, and zopfli, which deflates blocks in zlib-ng's
+/// place.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(i32)]
 pub enum Strategy {
@@ -26,6 +27,17 @@ pub enum Strategy {
     HuffmanOnly = 2,
     Rle = 3,
     Fixed = 4,
+    Zopfli = 5,
+}
+
+impl Strategy {
+    /// The strategy zlib-ng takes. It never sees zopfli, whose streams deflate by default.
+    fn zlib(self) -> i32 {
+        match self {
+            Strategy::Zopfli => Strategy::Default as i32,
+            strategy => strategy as i32,
+        }
+    }
 }
 
 /// How one call into deflate or inflate returned and how far it moved through each buffer.
@@ -155,7 +167,7 @@ impl Deflater {
     pub fn new(level: i32, window_bits: i32, strategy: Strategy) -> Option<Self> {
         // SAFETY: the stream is zeroed, as init expects.
         stream_new(|strm| unsafe {
-            z::zng_deflateInit2(strm, level, z::Z_DEFLATED, window_bits, MEM_LEVEL, strategy as i32)
+            z::zng_deflateInit2(strm, level, z::Z_DEFLATED, window_bits, MEM_LEVEL, strategy.zlib())
         })
         .map(|strm| Self {
             strm,
@@ -172,7 +184,7 @@ impl Deflater {
     /// Settings for what is deflated next, on a stream fresh from a reset.
     pub fn params(&mut self, level: i32, strategy: Strategy) {
         // SAFETY: the stream is initialized, and with nothing deflated yet no buffer is touched.
-        unsafe { z::zng_deflateParams(&mut *self.strm, level, strategy as i32) };
+        unsafe { z::zng_deflateParams(&mut *self.strm, level, strategy.zlib()) };
     }
 
     /// The most bytes deflating len bytes in one call can produce.

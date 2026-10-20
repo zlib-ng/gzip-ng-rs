@@ -21,7 +21,8 @@ pub struct Compress<'a> {
     pub level: i32,
     pub strategy: Strategy,
     /// About how much input an independent block holds. At 0 compress_stream() writes one plain
-    /// deflate stream instead, which a Writer cannot.
+    /// deflate stream instead, which a Writer cannot, except with zopfli, where it cuts
+    /// DEFAULT_BLOCK blocks.
     pub block_size: u32,
     /// Workers for the blocks, 0 picks the number of CPUs.
     pub threads: usize,
@@ -133,6 +134,14 @@ fn deflate_span<W: Write>(
 pub fn compress_stream<R: Read, W: Write>(mut input: R, out: W, params: &Compress) -> io::Result<Totals> {
     if params.block_size != 0 {
         return block_compress_stream(input, out, params);
+    }
+    // zopfli only deflates blocks.
+    if params.strategy == Strategy::Zopfli {
+        let params = Compress {
+            block_size: DEFAULT_BLOCK,
+            ..*params
+        };
+        return block_compress_stream(input, out, &params);
     }
 
     // A flush every few kilobytes makes for small writes, gathered here the way stdio would.

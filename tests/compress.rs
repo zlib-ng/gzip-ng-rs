@@ -5,7 +5,7 @@ mod common;
 
 use common::{pattern, whole_inflate};
 use gzng::format::{self, Parse};
-use gzng::{Compress, Totals};
+use gzng::{Compress, Strategy, Totals};
 
 /// Compress data through the stream function, returning what it wrote and what it counted.
 fn compress_counted(data: &[u8], params: &Compress) -> (Vec<u8>, Totals) {
@@ -145,4 +145,51 @@ fn empty_input_makes_an_empty_block_member() {
 
     assert_eq!(format::HEADER_LEN + 2 + format::TRAILER_LEN, packed.len());
     assert!(whole_inflate(&packed, 0).is_empty());
+}
+
+#[cfg(feature = "zopfli")]
+#[test]
+fn zopfli_blocks_are_smaller_and_read_in_parallel() {
+    use common::{block_read, varied_data};
+
+    let data = varied_data(64 << 10);
+    let params = |strategy| Compress {
+        level: 9,
+        strategy,
+        block_size: 8 << 10,
+        threads: 2,
+        ..Compress::default()
+    };
+
+    let (best, zopfli) = (
+        compress(&data, &params(Strategy::Default)),
+        compress(&data, &params(Strategy::Zopfli)),
+    );
+    assert!(has_block_pairs(&zopfli));
+    assert!(zopfli.len() < best.len());
+    assert_eq!(data, whole_inflate(&zopfli, data.len()));
+    assert_eq!(data, block_read(&zopfli, 4));
+}
+
+#[cfg(feature = "zopfli")]
+#[test]
+fn zopfli_cuts_blocks_without_a_block_size() {
+    let data = pattern(10_000);
+    let params = Compress {
+        strategy: Strategy::Zopfli,
+        ..Compress::default()
+    };
+
+    assert_eq!(data, whole_inflate(&compress(&data, &params), data.len()));
+}
+
+#[cfg(not(feature = "zopfli"))]
+#[test]
+fn zopfli_needs_the_feature() {
+    let params = Compress {
+        strategy: Strategy::Zopfli,
+        ..Compress::default()
+    };
+
+    assert!(gzng::compress_stream(&b"data"[..], Vec::new(), &params).is_err());
 }
