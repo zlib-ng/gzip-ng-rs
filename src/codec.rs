@@ -1,10 +1,19 @@
 // codec.rs -- the deflate and inflate the pool runs over one slot at a time
 // For conditions of distribution and use, see LICENSE.md
 
+#[cfg(feature = "zopfli")]
+use std::io::{self, Write};
+
+#[cfg(feature = "zopfli")]
+use zopfli::{BlockType, DeflateEncoder, Options};
+
 use crate::gzblock::MAX_BLOCK;
 use crate::pool::{Mode, Slot};
 use crate::zng::{self, Deflater, Inflater, MAX_WBITS, Z_BLOCK, Z_BUF_ERROR, Z_FINISH, Z_FULL_FLUSH, Z_NO_FLUSH};
 use crate::zng::{Z_OK, Z_STREAM_END, Z_SYNC_FLUSH};
+
+#[cfg(feature = "zopfli")]
+use crate::zng::Strategy;
 
 /// How working a slot ended. For a segment being inflated, Full is a block whose output and
 /// trailing marker were consumed, End is the block that ends the deflate stream, Short ran out of
@@ -161,6 +170,61 @@ fn run_block(strm: &mut Deflater, slot: &mut Slot, out_size: usize) {
     slot.crc = zng::crc32(input);
 }
 
+/// Deflate one block with zopfli. A block before the last ends on the marker pair rather than
+/// the end of the stream, which zopfli has no call for until zopfli-rs/zopfli#91, so the empty
+/// final block it ends with is rewritten.
+#[cfg(feature = "zopfli")]
+fn zopfli_block(input: &[u8], last: bool) -> io::Result<Vec<u8>> {
+    let mut enc = DeflateEncoder::new(Options::default(), BlockType::Dynamic, Vec::new());
+
+    enc.write_all(input)?;
+    if last {
+        return enc.finish();
+    }
+    // Any write pushes the pending input out as non-final blocks, so finish only adds an empty
+    // final block, which zopfli writes fixed, as 1 10 0000000, padded with zeros.
+    let _ = enc.write(&[])?;
+    let mut out = enc.finish()?;
+
+    // Its btype low bit is the highest bit set, and BFINAL the bit below it where the block
+    // starts. Anything else at the end is not that block.
+    let top = out
+        .iter()
+        .rposition(|&b| b != 0)
+        .map(|at| at * 8 + 7 - out[at].leading_zeros() as usize);
+    let Some(start) = top.and_then(|top| top.checked_sub(1)) else {
+        return Err(io::Error::other("zopfli wrote no final block"));
+    };
+    if !(10..18).contains(&(out.len() * 8 - start)) || out[start / 8] & (1 << (start % 8)) == 0 {
+        return Err(io::Error::other("zopfli ended on an unexpected block"));
+    }
+    out.truncate(start / 8 + 1);
+    out[start / 8] &= (1 << (start % 8)) - 1;
+
+    // In its place the marker pair, two empty stored blocks, the first padded to a byte.
+    if start % 8 > 5 {
+        out.push(0); // its 3 bit header spills into the next byte
+    }
+    out.extend_from_slice(&[0, 0, 0xff, 0xff, 0, 0, 0, 0xff, 0xff]);
+    Ok(out)
+}
+
+/// Deflate one block with zopfli, done on the same terms as run_block.
+#[cfg(feature = "zopfli")]
+fn run_zopfli(slot: &mut Slot, out_size: usize) {
+    let input = &slot.input[..slot.in_len];
+    let out = zopfli_block(input, slot.last).ok().filter(|out| out.len() <= out_size);
+
+    slot.out_len = 0;
+    if let Some(out) = &out {
+        slot.out[..out.len()].copy_from_slice(out);
+        slot.out_len = out.len();
+    }
+    slot.in_used = slot.in_len;
+    slot.status = if out.is_some() { Status::Full } else { Status::Error };
+    slot.crc = zng::crc32(input);
+}
+
 /// One persistent stream per worker, deflate or inflate by the pool's mode.
 pub enum Codec {
     Deflate(Deflater),
@@ -177,9 +241,44 @@ impl Codec {
 
     pub fn run(&mut self, slot: &mut Slot, out_size: usize) {
         match self {
+            #[cfg(feature = "zopfli")]
+            Codec::Deflate(_) if slot.strategy == Strategy::Zopfli => run_zopfli(slot, out_size),
             Codec::Deflate(strm) => run_block(strm, slot, out_size),
             Codec::Inflate(strm) if slot.members != 0 => run_members(strm, slot),
             Codec::Inflate(strm) => run_segment(strm, slot),
+        }
+    }
+}
+
+#[cfg(all(test, feature = "zopfli"))]
+mod tests {
+    use super::*;
+
+    /// Two blocks joined, the first ending on the marker pair, inflated as one raw stream.
+    fn joined_inflate(first: &[u8], second: &[u8]) -> Vec<u8> {
+        let mut stream = zopfli_block(first, false).unwrap();
+        let mut strm = Inflater::new(-MAX_WBITS).unwrap();
+        let mut out = vec![0; first.len() + second.len() + 1];
+
+        assert!(stream.ends_with(&[0, 0, 0xff, 0xff, 0, 0, 0, 0xff, 0xff]));
+        stream.extend(zopfli_block(second, true).unwrap());
+        let step = strm.inflate(&stream, &mut out, Z_FINISH);
+        assert_eq!(Z_STREAM_END, step.rc);
+        assert_eq!(stream.len(), step.consumed);
+        out.truncate(step.produced);
+        out
+    }
+
+    #[test]
+    fn zopfli_blocks_join_at_every_bit_offset() {
+        let data: Vec<u8> = (0..4000u32)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 27) as u8)
+            .collect();
+
+        // Lengths enough to end the first block at each of a byte's eight bit offsets.
+        for len in (0..128).chain([3000]) {
+            let (first, second) = (&data[..len], &data[len..len + 100]);
+            assert_eq!(data[..len + 100], joined_inflate(first, second), "length {len}");
         }
     }
 }

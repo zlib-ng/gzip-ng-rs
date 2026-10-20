@@ -133,6 +133,8 @@ enum Opt {
     Rle,
     Filtered,
     Fixed,
+    #[cfg(feature = "zopfli")]
+    Zopfli,
     Transparent,
     Ascii,
     Independent,
@@ -199,6 +201,8 @@ const OPTION_TABLE: &[OptionDesc] = &[
     row(Opt::Rle,         Some('U'), Some("rle"),         None,               None,         "run length strategy"),
     row(Opt::Filtered,    None,      Some("filtered"),    None,               None,         "filtered strategy"),
     row(Opt::Fixed,       None,      Some("fixed"),       None,               None,         "fixed codes strategy"),
+    #[cfg(feature = "zopfli")]
+    row(Opt::Zopfli,      None,      Some("zopfli"),      None,               None,         "zopfli, smaller than -9 and many times slower"),
     row(Opt::Transparent, Some('T'), None,                None,               None,         "copy through without compressing"),
     row(Opt::Ascii,       Some('A'), None,                None,               None,         "text mode, accepted for compatibility"),
     row(Opt::Independent, Some('i'), Some("independent"), None,               None,         "accepted for compatibility, blocks always are"),
@@ -325,6 +329,8 @@ impl Options {
             Opt::Rle => self.strategy = Strategy::Rle,
             Opt::Filtered => self.strategy = Strategy::Filtered,
             Opt::Fixed => self.strategy = Strategy::Fixed,
+            #[cfg(feature = "zopfli")]
+            Opt::Zopfli => self.strategy = Strategy::Zopfli,
             Opt::Transparent => self.transparent = true,
             Opt::Ascii => self.text_mode = true,
             Opt::Independent => {} // pigz --independent, what the writer does anyway

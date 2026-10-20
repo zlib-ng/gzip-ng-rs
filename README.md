@@ -36,8 +36,9 @@ The command lands in `target/release/gzip-ng`. zlib-ng comes from the [libz-ng-s
 | Feature   | Description                                     | Default |
 |:----------|:------------------------------------------------|---------|
 | `threads` | Compress and decompress blocks on a thread pool | on      |
+| `zopfli`  | Compress blocks with zopfli under `--zopfli`    | on      |
 
-`cargo build --no-default-features` builds without threads.
+`cargo build --no-default-features` builds without threads or zopfli.
 
 ## Usage
 
@@ -70,6 +71,7 @@ Compresses files in place, file to file.gz, removing the input unless kept. With
 | `-U` `--rle` | Run length strategy |
 | `--filtered` | Filtered strategy |
 | `--fixed` | Fixed codes strategy |
+| `--zopfli` | Compress with zopfli, smaller than `-9` and many times slower, always in blocks |
 | `-T` | Copy through without compressing |
 | `-A` | Text mode, accepted for compatibility |
 | `--rsyncable` | Make a plain stream rsync friendly, block output always is |
@@ -88,7 +90,7 @@ Exit status is 0, 1 on errors, 2 on warnings, as gzip behaves.
 - `--blocksize` is the tradeoff knob. Independent blocks trade ratio for decode granularity and delta size, both endpoints keeping parallel decompression. Raising it recovers most of the ratio distance to chained pigz, 83% at `-b 1M` on a mixed corpus, lowering it shrinks how much of the output changes when the input does.
 - The deflate, inflate, and crc engine is zlib-ng, with SIMD in the block boundary scanner as well.
 - The core is a library. The block reader and writer in `gzng::gzblock` work over any `Read` and `Write`, are a `BufRead` and a `Write` themselves, and the command line is one caller of them.
-- Not carried over from pigz: zopfli's `-11`, zlib and zip output formats, and `--suffix`.
+- zopfli is `--zopfli` rather than pigz's `-11`. Not carried over from pigz: zopfli's tuning options, zlib and zip output formats, and `--suffix`.
 
 ## How it works
 
@@ -97,6 +99,7 @@ Exit status is 0, 1 on errors, 2 on warnings, as gzip behaves.
 - With `--processes` or `--blocksize` the input is cut into blocks, 128 KiB by default, and each block is deflated by a worker thread from an empty dictionary, so no block depends on another.
 - A block ends at the first byte past half the block size where the low bits of a Gear hash, the rolling hash behind FastCDC, come up zero, or at twice the block size.
 - Each block ends with a sync flush and a full flush, two empty stored blocks, the nine bytes `00 00 FF FF 00 00 00 FF FF`, the same shape `pigz --independent` writes.
+- With `--zopfli` zopfli deflates each block in place of zlib-ng and ends it on the same marker pair. zopfli only works this way, so `--zopfli` always cuts blocks.
 - The blocks are written in order as one ordinary gzip member, header, blocks back to back, and a trailer whose CRC is the blocks' CRCs combined.
 
 ```

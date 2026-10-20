@@ -69,7 +69,7 @@ pub fn header_build(buf: &mut [u8; HEADER_MAX], hdr: &Header) -> usize {
     buf[3] = if name.is_some() { 8 } else { 0 }; // FNAME
     buf[4..8].copy_from_slice(&hdr.mtime.to_le_bytes());
     // Extra flags, 2 for the slowest deflate settings, 4 for the fastest.
-    buf[8] = if hdr.level == 9 {
+    buf[8] = if hdr.level == 9 || hdr.strategy == Strategy::Zopfli {
         2
     } else if hdr.strategy >= Strategy::HuffmanOnly || (0..2).contains(&hdr.level) {
         4

@@ -29,15 +29,22 @@ name = "gzip-ng"
 path = "src/main.rs"
 
 [features]
-default = ["threads"]
+default = ["threads", "zopfli"]
 # Compress and decompress blocks on a thread pool.
 threads = []
+# Compress blocks with zopfli under --zopfli.
+zopfli = ["dep:zopfli"]
 
 [dependencies]
 gearhash = "0.1.4"
 libc = "0.2"
 libz-ng-sys = "1.1.30"
 memchr = "2"
+zopfli = { version = "0.8.4", default-features = false, features = ["std"], optional = true }
+
+# Unoptimized zopfli is slow enough to stall the tests of a debug build.
+[profile.dev.package.zopfli]
+opt-level = 3
 
 [dev-dependencies]
 criterion = "0.8"

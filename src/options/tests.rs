@@ -198,6 +198,20 @@ fn strategies() {
     }
 }
 
+#[cfg(feature = "zopfli")]
+#[test]
+fn zopfli_is_a_strategy() {
+    assert_eq!(Strategy::Zopfli, parsed(&["--zopfli"]).0.strategy);
+    assert_eq!(Strategy::Zopfli, parsed(&["--zopfli", "-9"]).0.strategy);
+    assert_eq!(Strategy::Rle, parsed(&["--zopfli", "-U"]).0.strategy);
+}
+
+#[cfg(not(feature = "zopfli"))]
+#[test]
+fn zopfli_needs_the_feature() {
+    assert!(parse(&["--zopfli"]).1.is_err());
+}
+
 #[test]
 fn transparent_and_text() {
     let (opt, _) = parsed(&["-T", "-A"]);

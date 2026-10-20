@@ -99,10 +99,14 @@ fn start_pipeline(level: i32, strategy: Strategy, nthreads: usize, in_size: usiz
     Pipeline::start(Mode::Deflate { level, strategy }, nthreads, in_size, out_size)
 }
 
-/// Deflate takes levels 0 to 9, and the one that leaves the choice to it.
-fn check_level(level: i32) -> Result<()> {
+/// Deflate takes levels 0 to 9, and the one that leaves the choice to it. zopfli takes any of
+/// them, when built in.
+fn check_params(level: i32, strategy: Strategy) -> Result<()> {
     if !(DEFAULT_COMPRESSION..=9).contains(&level) {
         return Err(Error::new(Code::Stream, "bad level"));
+    }
+    if strategy == Strategy::Zopfli && !cfg!(feature = "zopfli") {
+        return Err(Error::new(Code::Stream, "zopfli is not built in"));
     }
     Ok(())
 }
@@ -117,7 +121,7 @@ impl<W: Write> Writer<W> {
         if block_size == 0 || block_size > MAX_BLOCK {
             return Err(Error::new(Code::Stream, "bad block size"));
         }
-        check_level(params.level)?;
+        check_params(params.level, params.strategy)?;
         let nthreads = if params.threads > 0 {
             params.threads
         } else {
@@ -300,7 +304,7 @@ impl<W: Write> Writer<W> {
     /// Settings for the blocks to come.
     pub fn set_params(&mut self, level: i32, strategy: Strategy) -> Result<()> {
         self.check_open()?;
-        check_level(level)?;
+        check_params(level, strategy)?;
         if level == self.level && strategy == self.strategy {
             return Ok(());
         }

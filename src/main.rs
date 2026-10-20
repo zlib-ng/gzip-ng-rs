@@ -227,7 +227,7 @@ fn run_stream(input: impl Read, out: impl Write, opt: &Options, mtime: u32, name
         return copy_stream(input, out);
     }
     // Threads need blocks to work on, so --processes implies one. Without either this stays a
-    // single deflate stream.
+    // single deflate stream, unless zopfli, which compress_stream() always cuts into blocks.
     let mut block_size = opt.block_size;
     if block_size == 0 && opt.threads_given && opt.threads != 1 {
         block_size = gzng::DEFAULT_BLOCK;
