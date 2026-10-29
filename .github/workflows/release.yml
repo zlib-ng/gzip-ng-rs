@@ -6,45 +6,65 @@ on:
         description: Version to release, also the tag, e.g. 2.0.0
         required: true
         type: string
-      ref:
-        description: Commit, tag, or branch to build
-        required: true
-        type: string
-        default: develop
 
 permissions:
   contents: write
 
 jobs:
-  check:
-    name: Check version
+  prepare:
+    name: Bump version
     runs-on: ubuntu-latest
     outputs:
-      sha: ${{ steps.commit.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
     steps:
+      # The push goes through a token that can reach the branch and start workflows on the commit.
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
 
-      # The package carries the version, and a release must match it.
-      - name: Version matches the sources
+      - name: Normalize version
+        id: version
+        env:
+          INPUT: ${{ inputs.version }}
         run: |
-          want="${{ inputs.version }}"
-          cargo=$(sed -n 's/^version = "\([0-9.]*\)".*/\1/p' Cargo.toml | head -n 1)
-          test "$cargo" = "$want" || { echo "Cargo.toml says $cargo, not $want"; exit 1; }
-          if git ls-remote --exit-code origin "refs/tags/$want" > /dev/null; then
-            echo "tag $want already exists"
+          VERSION="${INPUT#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must look like 1.2.3, got $INPUT"
             exit 1
           fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve the commit
-        id: commit
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Update Cargo.toml
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+
+      - name: Update Cargo.lock
+        run: cargo update --workspace
+
+      # The tag refuses a version that was released before, since the checkout has every tag.
+      - name: Commit and tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          # When a pull request has set the version already there is nothing to commit, and the
+          # tag goes on HEAD.
+          if ! git diff --cached --quiet; then
+            git commit -m "Bump the version to $VERSION"
+          fi
+          git tag "$VERSION"
+          git push origin "HEAD:$BRANCH"
+          git push origin "$VERSION"
 
   build:
     name: ${{ matrix.name }}
-    needs: check
+    needs: prepare
     strategy:
       fail-fast: true
       matrix:
@@ -101,7 +121,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.prepare.outputs.version }}
 
       - name: Install target
         run: rustup target add ${{ matrix.target }}
@@ -131,7 +151,7 @@ jobs:
       - name: Package
         if: runner.os != 'Windows'
         run: |
-          dir=gzip-ng-rs-${{ inputs.version }}-${{ matrix.target }}
+          dir=gzip-ng-rs-${{ needs.prepare.outputs.version }}-${{ matrix.target }}
           mkdir -p pkg/$dir
           cp target/${{ matrix.target }}/release/gzip-ng LICENSE.md README.md pkg/$dir/
           if [ "$RUNNER_OS" = "Linux" ]; then
@@ -142,7 +162,7 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
-          $dir = "gzip-ng-rs-${{ inputs.version }}-${{ matrix.target }}"
+          $dir = "gzip-ng-rs-${{ needs.prepare.outputs.version }}-${{ matrix.target }}"
           New-Item -ItemType Directory -Path pkg/$dir | Out-Null
           Copy-Item target/${{ matrix.target }}/release/gzip-ng.exe, LICENSE.md, README.md pkg/$dir/
           Compress-Archive -Path pkg/$dir -DestinationPath "$dir.zip"
@@ -158,7 +178,7 @@ jobs:
 
   release:
     name: Publish release
-    needs: [check, build]
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
@@ -170,20 +190,20 @@ jobs:
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt
 
-      - name: Create the tagged release
+      - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: >
-          gh release create ${{ inputs.version }} dist/*
+          gh release create "$VERSION" dist/*
           --repo ${{ github.repository }}
-          --target ${{ needs.check.outputs.sha }}
-          --title "gzip-ng-rs ${{ inputs.version }}"
+          --title "gzip-ng-rs $VERSION"
           --generate-notes
 
   # A published crate cannot be taken back, so it goes last, after everything else held.
   crate:
     name: Publish crate
-    needs: [check, release]
+    needs: [prepare, release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -191,7 +211,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ needs.check.outputs.sha }}
+          ref: ${{ needs.prepare.outputs.version }}
 
       - name: Publish crate
         env:
