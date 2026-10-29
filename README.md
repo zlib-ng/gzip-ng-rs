@@ -97,7 +97,7 @@ Exit status is 0, 1 on errors, 2 on warnings, as gzip behaves.
 ### Parallel compression
 
 - With `--processes` or `--blocksize` the input is cut into blocks, 128 KiB by default, and each block is deflated by a worker thread from an empty dictionary, so no block depends on another.
-- A block ends at the first byte past half the block size where the low bits of a Gear hash, the rolling hash behind FastCDC, come up zero, or at twice the block size.
+- A block ends at the first byte past half the block size where the high bits of a Gear hash, the rolling hash behind FastCDC, come up zero, or at twice the block size.
 - Each block ends with a sync flush and a full flush, two empty stored blocks, the nine bytes `00 00 FF FF 00 00 00 FF FF`, the same shape `pigz --independent` writes.
 - With `--zopfli` zopfli deflates each block in place of zlib-ng and ends it on the same marker pair. zopfli only works this way, so `--zopfli` always cuts blocks.
 - The blocks are written in order as one ordinary gzip member, header, blocks back to back, and a trailer whose CRC is the blocks' CRCs combined.

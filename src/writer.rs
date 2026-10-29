@@ -23,11 +23,11 @@ use crate::zng::{self, Deflater, MAX_WBITS, Strategy};
 /// above block_size with every boundary content-defined. Content the hash never hits, such as a
 /// run of one byte, is still cut at twice it.
 struct Rsync {
-    hash: u32,
+    hash: u64,
     /// Strict mask while the block is short of block_size.
-    mask_lo: u32,
+    mask_lo: u64,
     /// Loose mask once it is past.
-    mask_hi: u32,
+    mask_hi: u64,
     /// No early end before this much of the block is filled.
     min: usize,
     /// A block is cut on size alone only here.
